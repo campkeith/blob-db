@@ -1,0 +1,96 @@
+namespace BlobDB;
+
+rpc_service BlobDB {
+    store_create(StoreCreateIn): StoreCreateOut;
+    store_remove(StoreRemoveIn): StoreRemoveOut;
+
+    blob_load(BlobLoadIn): BlobLoadOut;
+    blob_save(BlobSaveIn): BlobSaveOut;
+    blob_info(BlobInfoIn): BlobInfoOut;
+    blob_list(BlobListIn): BlobListOut;
+    blob_remove(BlobRemoveIn): BlobRemoveOut;
+
+    hash(HashIn): HashOut;
+}
+
+
+table StoreCreateIn {
+    name: string;
+}
+table StoreCreateOut {
+    status: string;
+}
+
+table StoreRemoveIn {
+    name: string;
+}
+table StoreRemoveOut {
+    status: string;
+}
+
+
+table BlobLoadIn {
+    store_name: string;
+    hash: [ubyte];
+}
+union BlobStatus {
+    blob: Bytes,
+    status: String,
+}
+table BlobLoadOut {
+    blob_status: BlobStatus;
+}
+
+table BlobSaveIn {
+    store_name: string;
+    blob: [ubyte];
+}
+table BlobSaveOut {
+    status: string;
+    hash: [ubyte];
+}
+
+table BlobInfoIn {
+    store_name: string;
+    hash: [ubyte];
+}
+table BlobInfoOut {
+    status: string;
+}
+
+table BlobListIn {
+    store_name: string;
+}
+union HashesStatus {
+    hashes: ByteSets,
+    status: String,
+}
+table BlobListOut {
+    hashes_status: HashesStatus;
+}
+
+table BlobRemoveIn {
+    store_name: string;
+    hash: [ubyte];
+}
+table BlobRemoveOut {
+    status: string;
+}
+
+table HashIn {
+    blob: [ubyte];
+}
+table HashOut {
+    hash: [ubyte];
+}
+
+
+table ByteSets {
+    elems: [Bytes];
+}
+table Bytes {
+    elems: [ubyte];
+}
+table String {
+    string: string;
+}
