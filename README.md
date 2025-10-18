@@ -7,10 +7,9 @@ content-addressible blobs. A blob is binary data
 
 ## Interface
 
-### Store Functions
+### Database Functions
 
-These functions are used to manage "stores" which are the top-level
-collections of blobs in the database.
+These functions operate at the global database scope.
 
 #### Create Store
 
@@ -19,17 +18,28 @@ store_create(StoreName) -> Status
 ```
 Create a store with the given name.
 
-#### Remove Store
+#### Destroy Store
 
 ```
-store_remove(StoreName) -> Status
+store_destroy(StoreName) -> Status
 ```
-Remove the store with the given name and all blobs within the given store.
+Destroy the store with the given name and all blobs within the given store.
 
 **Note**: As one would expect, this does not affect duplicates of any of said
 blobs in other stores.
 
-### Blob Functions
+#### Hash Blob
+
+```
+blob_hash(Blob) -> Hash
+```
+Output the hash of the given blob.
+
+**Note**: This simply implements the
+[sha256](https://en.wikipedia.org/wiki/SHA-2) algorithm, which a client can
+almost certainly do faster itself.
+
+### Store Functions
 
 These functions all operate on the blobs within the given store.
 
@@ -69,25 +79,12 @@ blob_list(StoreName) -> Hash[] | Status
 ```
 Output the hash of all blobs in the given store.
 
-#### Remove
+#### Delete Blob
 
 ```
-blob_remove(StoreName, Hash) -> Status
+blob_delete(StoreName, Hash) -> Status
 ```
-Remove the blob with the given hash from the given store.
-
-
-### Convenience Functions
-
-```
-hash(Blob) -> Hash
-```
-Output the hash of the given blob.
-
-**Note**: This simply implements the
-[sha256](https://en.wikipedia.org/wiki/SHA-2) algorithm, which a client can
-also do itself.
-
+Delete the blob with the given hash from the given store.
 
 ### Data Types
 
@@ -119,7 +116,7 @@ A status string, which is one of:
 ## Architecture
 
 ```
-      | FlatBuffer
+      | Cap'n Proto
       v
 +-----------+
 | Interface |
