@@ -1,8 +1,8 @@
 # Blob Database
 
-The Blob Database manages multiple stores each containing multiple
-content-addressible blobs. A blob is binary data
-(i.e. the contents of any file).
+The Blob Database is a collection of *stores* each containing multiple
+content-addressible *blobs*. A blob is binary data
+(i.e. the contents of a file).
 
 
 ## Interface
@@ -105,13 +105,67 @@ a fixed-sized array of 32 bytes.
 
 #### Status
 
-A status string, which is one of:
-* `success`: The operation was successful.
+A status enumeration, which is one of:
+* `ok`: The operation was successful.
 * `not-found`: The blob with the given hash or the store with the given name
    was not found.
 * `already-exists`: The blob with the given hash or the store with the given
    name already exists.
-* `no-space`: Store failed due to insufficient storage space.
+* `no-space`: Save failed due to insufficient storage space.
+
+## Native Protocol
+
+### Request and Response Streams
+
+```
+RequestStream = {OPEN_DOOR, proto_version: uint32, requests: Request*}
+```
+
+```
+ResponseStream = {WELCOME, responses: Response*}
+               | {NOT_WELCOME, proto_version: uint32}
+```
+
+### Request and Response Frames
+
+```
+Request = {STORE_CREATE, StoreName}
+        | {STORE_DESTROY, StoreName}
+        | {BLOB_HASH, Blob}
+        | {BLOB_LIST, StoreName}
+        | {BLOB_INFO, StoreName, Hash}
+        | {BLOB_LOAD, StoreName, Hash}
+        | {BLOB_SAVE, StoreName, Blob}
+        | {BLOB_DELETE, StoreName, Hash}
+
+Response = Status
+         | HashResponse
+         | ListResponse
+         | LoadResponse
+         | SaveResponse
+
+HashResponse = {OK, Hash} | ErrorStatus
+ListResponse = {OK, Hashes} | ErrorStatus
+LoadResponse = {OK, Blob} | ErrorStatus
+SaveResponse = {OK | ALREADY_EXISTS | NO_SPACE, Hash} | INVALID_ARGUMENT
+```
+
+### Values
+
+```
+StoreName = {size: uint32, elems: [size x uint8]}
+Blob = {size: uint64, elems: [size x uint8]}
+Hash = [32 x uint8]
+Hashes = {size: uint32, elems: [size x Hash]}
+
+Status = OK | ErrorStatus
+
+ErrorStatus = NOT_FOUND
+            | ALREADY_EXISTS
+            | INVALID_ARGUMENT
+            | NO_SPACE
+```
+
 
 ## Architecture
 

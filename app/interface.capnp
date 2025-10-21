@@ -1,10 +1,5 @@
 @0x84b1279a70ad9e8a;
 
-using Name = Text;
-using Blob = Data;
-using Hash = Data;
-using Status = Text;
-
 interface Database {
     storeCreate @0 (name :Name) -> (status :Status);
     storeDestroy @1 (name :Name) -> (status :Status);
@@ -37,3 +32,14 @@ struct BlobStatus {
         status @1 :Status;
     }
 }
+
+enum Status {
+    ok @0;
+    notFound @1;
+    alreadyExists @2;
+    noSpace @3;
+}
+
+using Name = Text;
+using Blob = Data;
+using Hash = Data;
