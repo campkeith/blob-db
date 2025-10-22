@@ -11,5 +11,10 @@ path = "src/client.rs"
 name = "server"
 path = "src/server.rs"
 
+[[bin]]
+name = "serialize"
+path = "src/serialize.rs"
+
 [dependencies]
 clap = { version = "4.5.50", features = ["derive"] }
+num_enum = "0.7.5"
