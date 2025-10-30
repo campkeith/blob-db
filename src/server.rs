@@ -47,11 +47,11 @@ impl Server {
 
     fn handle_request(&self, stream: &mut TcpStream) -> Result<()> {
         let request = Request::recv(stream)?;
-        let response = self.process_request(request);
+        let response = self.process_request(&request);
         response.send(stream)
     }
 
-    fn process_request(&self, request: Request) -> Response {
+    fn process_request<'a>(&self, request: &Request) -> Response {
         match request {
             Request::StoreList() => {
                 let result = self.inner.store_list();

@@ -4,8 +4,10 @@ use std::io::{Read, Write};
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, code8};
-use crate::types::{Request, Response, Status, Result,
-                   Name, Names, Hash, Hashes, Blob, Code};
+use crate::types::{
+    Request, RequestRef, Response, Status, Result, Code,
+    Name, Names, Hash, Hashes, Blob, NameRef, NamesRef, HashesRef, BlobRef,
+};
 
 
 type ProtoVersion = u16;
@@ -58,33 +60,33 @@ pub fn send_not_welcome(stream: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-impl Send for & Request {
+impl Send for &RequestRef<'_> {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         match self {
-            Request::StoreList() =>
+            RequestRef::StoreList() =>
                 send!(stream, RequestCode::StoreList),
-            Request::StoreCreate(name) =>
+            RequestRef::StoreCreate(name) =>
                 send!(stream, RequestCode::StoreCreate, name),
-            Request::StoreDestroy(name) =>
+            RequestRef::StoreDestroy(name) =>
                 send!(stream, RequestCode::StoreDestroy, name),
-            Request::BlobHash(blob) =>
+            RequestRef::BlobHash(blob) =>
                 send!(stream, RequestCode::BlobHash, blob),
-            Request::BlobList(store_name) =>
+            RequestRef::BlobList(store_name) =>
                 send!(stream, RequestCode::BlobList, store_name),
-            Request::BlobInfo(store_name, hash) =>
+            RequestRef::BlobInfo(store_name, hash) =>
                 send!(stream, RequestCode::BlobInfo, store_name, hash),
-            Request::BlobLoad(store_name, hash) =>
+            RequestRef::BlobLoad(store_name, hash) =>
                 send!(stream, RequestCode::BlobLoad, store_name, hash),
-            Request::BlobSave(store_name, blob) =>
+            RequestRef::BlobSave(store_name, blob) =>
                 send!(stream, RequestCode::BlobSave, store_name, blob),
-            Request::BlobDelete(store_name, hash) =>
+            RequestRef::BlobDelete(store_name, hash) =>
                 send!(stream, RequestCode::BlobDelete, store_name, hash),
         }
         Ok(())
     }
 }
 
-impl Send for & Response {
+impl Send for &Response {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         match self {
             Response::Status(status) => send!(stream, status),
@@ -98,16 +100,16 @@ impl Send for & Response {
     }
 }
 
-impl Send for & Name {
+impl Send for NameRef<'_> {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let buffer = self.as_bytes();
         let size = log_ret_err!(u16::try_from(buffer.len()));
-        send!(stream, size, buffer);
-        Ok(())
+        size.send(stream)?;
+        bytes_send(stream, buffer)
     }
 }
 
-impl Send for & Names {
+impl Send for NamesRef<'_> {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
         size.send(stream)?;
@@ -118,20 +120,20 @@ impl Send for & Names {
     }
 }
 
-impl Send for & Blob {
+impl Send for HashesRef<'_> {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
-        send!(stream, size, self);
-        Ok(())
+        let buffer: Box<[u8]> = self.iter().cloned().flatten().collect();
+        size.send(stream)?;
+        bytes_send(stream, &buffer)
     }
 }
 
-impl Send for & Hashes {
+impl Send for BlobRef<'_> {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
-        let buffer: Blob = self.clone().into_iter().flatten().collect();
-        send!(stream, size, buffer);
-        Ok(())
+        size.send(stream)?;
+        bytes_send(stream, self)
     }
 }
 
@@ -147,17 +149,21 @@ impl_send_for_enum!(GreetCode, RequestCode, Status);
 macro_rules! impl_send_for_num {($($Num: ty), +) => {$(
     impl Send for $Num {
         fn send(self, stream: &mut impl Write) -> Result<()> {
-            self.to_le_bytes().send(stream)
+            bytes_send(stream, &self.to_le_bytes())
         }
     }
 )+}}
 impl_send_for_num!(u16, u64);
 
-impl Send for &[u8] {
+impl<const SIZE: usize> Send for &[u8; SIZE] {
     fn send(self, stream: &mut impl Write) -> Result<()> {
-        log_ret_err!(stream.write_all(self));
-        Ok(())
+        bytes_send(stream, self)
     }
+}
+
+fn bytes_send(stream: &mut impl Write, bytes: &[u8]) -> Result<()> {
+    log_ret_err!(stream.write_all(bytes));
+    Ok(())
 }
 
 
@@ -215,21 +221,21 @@ impl Recv for Request {
 }
 
 impl Response {
-    pub fn recv(stream: &mut impl Read, request_context: Request)
+    pub fn recv(stream: &mut impl Read, request_context: RequestRef)
             -> Result<Self> {
         let status: Status = Status::recv(stream)?;
         let response: Response = match (status, request_context) {
             (Status::BadArgument, _) =>
                 Response::Status(Status::BadArgument),
-            (Status::Okay, Request::StoreList(..)) =>
+            (Status::Okay, RequestRef::StoreList(..)) =>
                 Response::StoreList(Names::recv(stream)?),
-            (Status::Okay, Request::BlobHash(..)) =>
+            (Status::Okay, RequestRef::BlobHash(..)) =>
                 Response::BlobHash(Hash::recv(stream)?),
-            (Status::Okay, Request::BlobList(..)) =>
+            (Status::Okay, RequestRef::BlobList(..)) =>
                 Response::BlobList(Hashes::recv(stream)?),
-            (Status::Okay, Request::BlobLoad(..)) =>
+            (Status::Okay, RequestRef::BlobLoad(..)) =>
                 Response::BlobLoad(Blob::recv(stream)?),
-            (status, Request::BlobSave(..)) =>
+            (status, RequestRef::BlobSave(..)) =>
                 Response::BlobSave((status, Hash::recv(stream)?)),
             (status, _) =>
                 Response::Status(status),
@@ -255,15 +261,6 @@ impl Recv for Names {
     }
 }
 
-impl Recv for Blob {
-    fn recv(stream: &mut impl Read) -> Result<Self> {
-        let size_u64 = u64::recv(stream)?;
-        let size = log_ret_err!(usize::try_from(size_u64));
-        let blob = bytes_recv(stream, size)?;
-        Ok(blob)
-    }
-}
-
 impl Recv for Hashes {
     fn recv(stream: &mut impl Read) -> Result<Self> {
         let num_elems_u64 = u64::recv(stream)?;
@@ -272,6 +269,15 @@ impl Recv for Hashes {
         let buffer = bytes_recv(stream, size)?;
         let hashes = buffer.into_iter().array_chunks().collect();
         Ok(hashes)
+    }
+}
+
+impl Recv for Blob {
+    fn recv(stream: &mut impl Read) -> Result<Self> {
+        let size_u64 = u64::recv(stream)?;
+        let size = log_ret_err!(usize::try_from(size_u64));
+        let blob = bytes_recv(stream, size)?;
+        Ok(blob)
     }
 }
 
@@ -298,15 +304,14 @@ impl_recv_for_num!(u16, u64);
 
 impl<const SIZE: usize> Recv for [u8; SIZE] {
     fn recv(stream: &mut impl Read) -> Result<Self> {
-        let mut buffer = [0u8; SIZE];
-        log_ret_err!(stream.read_exact(&mut buffer));
-        Ok(buffer)
+        let mut bytes = [0u8; SIZE];
+        log_ret_err!(stream.read_exact(&mut bytes));
+        Ok(bytes)
     }
 }
 
 fn bytes_recv(stream: &mut impl Read, size: usize) -> Result<Box<[u8]>> {
-    let buf_uninit = Box::new_uninit_slice(size);
-    let mut buffer = unsafe {buf_uninit.assume_init()};
-    log_ret_err!(stream.read_exact(&mut buffer));
-    Ok(buffer)
+    let mut bytes = unsafe {Box::new_uninit_slice(size).assume_init()};
+    log_ret_err!(stream.read_exact(&mut bytes));
+    Ok(bytes)
 }

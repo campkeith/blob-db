@@ -9,7 +9,11 @@ use std::io::{Read, Write, ErrorKind};
 use sha2::{Sha256, Digest};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err};
-use crate::types::{Status, Result, Name, Names, Hash, Hashes, HashStr, Blob};
+use crate::types::{Name, NameRef, Names, Hash, HashRef, Hashes, Blob, BlobRef,
+                   Status, Result};
+
+
+type HashStr = [u8; 64];
 
 
 /* Apparently setting option bits is so complicated
@@ -44,26 +48,26 @@ impl Persister {
         dir_iter.map(entry_to_name).collect()
     }
 
-    pub fn store_create(&self, store_name: Name) -> Status {
+    pub fn store_create(&self, store_name: NameRef) -> Status {
         let result = fs::create_dir(self.store_path(store_name));
         map_ret_err!(result, ErrorKind::AlreadyExists, Status::AlreadyExists);
         log_err_ret_val!(result, Status::InternalError);
         Status::Okay
     }
 
-    pub fn store_destroy(&self, store_name: Name) -> Status {
+    pub fn store_destroy(&self, store_name: NameRef) -> Status {
         let result = fs::remove_dir_all(self.store_path(store_name));
         map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
         log_err_ret_val!(result, Status::InternalError);
         Status::Okay
     }
 
-    pub fn blob_hash(&self, blob: & Blob) -> Hash {
+    pub fn blob_hash(&self, blob: BlobRef) -> Hash {
         Sha256::digest(blob).into()
     }
 
 
-    pub fn blob_list(&self, store_name: Name) -> Result<Hashes> {
+    pub fn blob_list(&self, store_name: NameRef) -> Result<Hashes> {
         fn entry_to_hash(entry_res: io::Result<DirEntry>) -> Result<Hash> {
             let entry = log_ret_err!(entry_res);
             str_to_hash(entry.file_name().as_bytes())
@@ -74,14 +78,14 @@ impl Persister {
         log_ret_err!(store_iter).map(entry_to_hash).collect()
     }
 
-    pub fn blob_info(&self, store_name: Name, hash: Hash) -> Status {
+    pub fn blob_info(&self, store_name: NameRef, hash: HashRef) -> Status {
         match self.blob_open(store_name, hash, read_only()) {
             Err(status) => status,
             Ok(_) => Status::Okay,
         }
     }
 
-    pub fn blob_load(&self, store_name: Name, hash: Hash) -> Result<Blob> {
+    pub fn blob_load(&self, store_name: NameRef, hash: HashRef) -> Result<Blob> {
         let mut file = self.blob_open(store_name, hash, read_only())?;
         let metadata = log_ret_err!(file.metadata());
         let size = log_ret_err!(usize::try_from(metadata.len()));
@@ -91,21 +95,21 @@ impl Persister {
         Ok(buffer)
     }
 
-    pub fn blob_save(&self, store_name: Name, blob: & Blob) -> (Status, Hash) {
+    pub fn blob_save(&self, store_name: NameRef, blob: & Blob) -> (Status, Hash) {
         let save = |mut file: File| {
             log_err_ret_val!(file.write_all(blob), Status::InternalError);
             Status::Okay
         };
 
         let hash = self.blob_hash(blob);
-        let result = self.blob_open(store_name, hash, create_exclusive());
+        let result = self.blob_open(store_name, &hash, create_exclusive());
         match result {
             Err(status) => (status, hash),
             Ok(file) => (save(file), hash),
         }
     }
 
-    pub fn blob_delete(&self, store_name: Name, hash: Hash) -> Status {
+    pub fn blob_delete(&self, store_name: NameRef, hash: HashRef) -> Status {
         let result = fs::remove_file(self.blob_path(store_name, hash));
         map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
         log_err_ret_val!(result, Status::InternalError);
@@ -113,7 +117,7 @@ impl Persister {
     }
 
 
-    fn blob_open(&self, store_name: Name, hash: Hash, options: OpenOptions)
+    fn blob_open(&self, store_name: NameRef, hash: HashRef, options: OpenOptions)
             -> Result<File> {
         let result = options.open(self.blob_path(store_name, hash));
         result.or_else(|error| match error.kind() {
@@ -126,18 +130,18 @@ impl Persister {
         })
     }
 
-    fn store_path(&self, store_name: Name) -> Box<Path> {
+    fn store_path(&self, store_name: NameRef) -> Box<Path> {
         self.base_dir.join(String::from(store_name)).into_boxed_path()
     }
 
-    fn blob_path(&self, store_name: Name, hash: Hash) -> Box<Path> {
+    fn blob_path(&self, store_name: NameRef, hash: HashRef) -> Box<Path> {
         let hash_str = hash_to_str(hash);
         let file_name = OsStr::from_bytes(&hash_str);
         self.store_path(store_name).join(file_name).into_boxed_path()
     }
 }
 
-fn hash_to_str(hash: Hash) -> HashStr {
+fn hash_to_str(hash: HashRef) -> HashStr {
     fn byte_to_hex(byte: u8) -> [u8; 2] {
         [nibble_to_hex_digit(byte >> 4), nibble_to_hex_digit(byte & 0xf)]
     }
