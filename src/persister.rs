@@ -23,12 +23,11 @@ fn create_exclusive() -> OpenOptions {
     File::options().write(true).create_new(true).clone()
 }
 
-struct Persist {
+pub struct Persister {
     base_dir: Box<Path>,
 }
 
-#[allow(dead_code)]
-impl Persist {
+impl Persister {
     pub fn store_list(&self) -> Result<Names> {
         fn entry_to_name(entry_res: io::Result<DirEntry>) -> Result<Name> {
             let entry = log_ret_err!(entry_res);
@@ -92,13 +91,13 @@ impl Persist {
         Ok(buffer)
     }
 
-    pub fn blob_save(&self, store_name: Name, blob: Blob) -> (Status, Hash) {
+    pub fn blob_save(&self, store_name: Name, blob: & Blob) -> (Status, Hash) {
         let save = |mut file: File| {
-            log_err_ret_val!(file.write_all(&blob), Status::InternalError);
+            log_err_ret_val!(file.write_all(blob), Status::InternalError);
             Status::Okay
         };
 
-        let hash = self.blob_hash(&blob);
+        let hash = self.blob_hash(blob);
         let result = self.blob_open(store_name, hash, create_exclusive());
         match result {
             Err(status) => (status, hash),
@@ -113,22 +112,19 @@ impl Persist {
         Status::Okay
     }
 
-    pub fn blob_open(&self, store_name: Name, hash: Hash, options: OpenOptions)
+
+    fn blob_open(&self, store_name: Name, hash: Hash, options: OpenOptions)
             -> Result<File> {
         let result = options.open(self.blob_path(store_name, hash));
-        match result {
-            Err(error) => match error.kind() {
-                ErrorKind::NotFound => return Err(Status::NotFound),
-                ErrorKind::AlreadyExists => return Err(Status::AlreadyExists),
-                _ => {
-                    log_err!(error);
-                    return Err(Status::InternalError)
-                },
-            }
-            Ok(file) => Ok(file),
-        }
+        result.or_else(|error| match error.kind() {
+            ErrorKind::NotFound => Err(Status::NotFound),
+            ErrorKind::AlreadyExists => Err(Status::AlreadyExists),
+            _ => {
+                log_err!(error);
+                Err(Status::InternalError)
+            },
+        })
     }
-
 
     fn store_path(&self, store_name: Name) -> Box<Path> {
         self.base_dir.join(String::from(store_name)).into_boxed_path()

@@ -3,14 +3,6 @@ name = "blob-db"
 version = "0.1.0"
 edition = "2024"
 
-[[bin]]
-name = "client"
-path = "src/client.rs"
-
-[[bin]]
-name = "server"
-path = "src/server.rs"
-
 [dependencies]
 num_enum = "0.7.5"
 sha2 = "0.10.9"

@@ -5,8 +5,20 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, code8};
 use crate::types::{Request, Response, Status, Result,
-                   Name, Names, Hash, Hashes, Blob};
+                   Name, Names, Hash, Hashes, Blob, Code};
 
+
+type ProtoVersion = u16;
+const PROTO_VERSION: ProtoVersion = 1;
+
+const CODE_OPEN_DOOR: Code = code8!(b"OpenDoor");
+
+#[repr(u64)]
+#[derive(TryFromPrimitive, IntoPrimitive)]
+enum GreetCode {
+    Welcome = code8!(b"Welcome!"),
+    NotWelcome = code8!(b"Go away!"),
+}
 
 #[repr(u64)]
 #[derive(TryFromPrimitive, IntoPrimitive)]
@@ -32,8 +44,21 @@ macro_rules! send {($stream: expr, $($item: expr), *) => {
     {$($item.send($stream)?;)*}
 }}
 
-#[allow(dead_code)]
-impl Send for Request {
+pub fn send_open_door(stream: &mut impl Write) -> Result<()> {
+    send!(stream, CODE_OPEN_DOOR, PROTO_VERSION);
+    Ok(())
+}
+
+pub fn send_welcome(stream: &mut impl Write) -> Result<()> {
+    GreetCode::Welcome.send(stream)
+}
+
+pub fn send_not_welcome(stream: &mut impl Write) -> Result<()> {
+    send!(stream, GreetCode::NotWelcome, PROTO_VERSION);
+    Ok(())
+}
+
+impl Send for & Request {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         match self {
             Request::StoreList() =>
@@ -59,8 +84,7 @@ impl Send for Request {
     }
 }
 
-#[allow(dead_code)]
-impl Send for Response {
+impl Send for & Response {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         match self {
             Response::Status(status) => send!(stream, status),
@@ -68,13 +92,13 @@ impl Send for Response {
             Response::BlobHash(hash) => send!(stream, Status::Okay, hash),
             Response::BlobList(hashes) => send!(stream, Status::Okay, hashes),
             Response::BlobLoad(blob) => send!(stream, Status::Okay, blob),
-            Response::BlobSave(status, hash) => send!(stream, status, hash),
+            Response::BlobSave((status, hash)) => send!(stream, status, hash),
         }
         Ok(())
     }
 }
 
-impl Send for Name {
+impl Send for & Name {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let buffer = self.as_bytes();
         let size = log_ret_err!(u16::try_from(buffer.len()));
@@ -83,7 +107,7 @@ impl Send for Name {
     }
 }
 
-impl Send for Names {
+impl Send for & Names {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
         size.send(stream)?;
@@ -94,7 +118,7 @@ impl Send for Names {
     }
 }
 
-impl Send for Blob {
+impl Send for & Blob {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
         send!(stream, size, self);
@@ -102,10 +126,10 @@ impl Send for Blob {
     }
 }
 
-impl Send for Hashes {
+impl Send for & Hashes {
     fn send(self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
-        let buffer: Blob = self.into_iter().flatten().collect();
+        let buffer: Blob = self.clone().into_iter().flatten().collect();
         send!(stream, size, buffer);
         Ok(())
     }
@@ -114,11 +138,11 @@ impl Send for Hashes {
 macro_rules! impl_send_for_enum {($($Enum: ty), +) => {$(
     impl Send for $Enum {
         fn send(self, stream: &mut impl Write) -> Result<()> {
-            u64::from(self).send(stream)
+            Code::from(self).send(stream)
         }
     }
 )+}}
-impl_send_for_enum!(RequestCode, Status);
+impl_send_for_enum!(GreetCode, RequestCode, Status);
 
 macro_rules! impl_send_for_num {($($Num: ty), +) => {$(
     impl Send for $Num {
@@ -141,7 +165,28 @@ pub trait Recv: Sized {
     fn recv(stream: &mut impl Read) -> Result<Self>;
 }
 
-#[allow(dead_code)]
+pub fn recv_open_door(stream: &mut impl Read) -> Result<()> {
+    let open_door = Code::recv(stream)?;
+    let proto_version = ProtoVersion::recv(stream)?;
+    match (open_door, proto_version) {
+        (CODE_OPEN_DOOR, PROTO_VERSION) => Ok(()),
+        _ => Err(Status::BadArgument),
+    }
+}
+
+pub fn recv_welcome(stream: &mut impl Read) -> Result<()> {
+    let code = GreetCode::recv(stream)?;
+    match code {
+        GreetCode::Welcome => Ok(()),
+        GreetCode::NotWelcome => {
+            let proto_version = ProtoVersion::recv(stream)?;
+            eprintln!("recv_welcome: server says we are not welcome; \
+                       client: v{PROTO_VERSION}, server: v{proto_version}");
+            Err(Status::BadArgument)
+        },
+    }
+}
+
 impl Recv for Request {
     fn recv(stream: &mut impl Read) -> Result<Self> {
         let code: RequestCode = RequestCode::recv(stream)?;
@@ -169,14 +214,13 @@ impl Recv for Request {
     }
 }
 
-#[allow(dead_code)]
 impl Response {
     pub fn recv(stream: &mut impl Read, request_context: Request)
             -> Result<Self> {
         let status: Status = Status::recv(stream)?;
         let response: Response = match (status, request_context) {
-            (Status::InvalidArgument, _) =>
-                Response::Status(Status::InvalidArgument),
+            (Status::BadArgument, _) =>
+                Response::Status(Status::BadArgument),
             (Status::Okay, Request::StoreList(..)) =>
                 Response::StoreList(Names::recv(stream)?),
             (Status::Okay, Request::BlobHash(..)) =>
@@ -186,7 +230,7 @@ impl Response {
             (Status::Okay, Request::BlobLoad(..)) =>
                 Response::BlobLoad(Blob::recv(stream)?),
             (status, Request::BlobSave(..)) =>
-                Response::BlobSave(status, Hash::recv(stream)?),
+                Response::BlobSave((status, Hash::recv(stream)?)),
             (status, _) =>
                 Response::Status(status),
         };
@@ -240,7 +284,7 @@ macro_rules! impl_recv_for_enum{($($Enum: ty), +) => {$(
         }
     }
 )+}}
-impl_recv_for_enum!(RequestCode, Status);
+impl_recv_for_enum!(GreetCode, RequestCode, Status);
 
 macro_rules! impl_recv_for_num{($($Num: ty), +) => {$(
     impl Recv for $Num {

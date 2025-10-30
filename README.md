@@ -11,6 +11,13 @@ content-addressible *blobs*. A blob is binary data
 
 These functions operate at the global database scope.
 
+#### List Stores
+
+```
+store_list() -> StoreName[]
+```
+Output the names of all stores in the database.
+
 #### Create Store
 
 ```
@@ -70,7 +77,7 @@ a duplicate blob is a no-op.)
 blob_info(StoreName, Hash) -> Status
 ```
 Determine whether the blob with the given hash exists in the given store.
-Outputs `success` if it exists, `not-found` otherwise.
+Outputs `okay` if it exists, `not-found` otherwise.
 
 #### List Blobs
 
@@ -106,12 +113,14 @@ a fixed-sized array of 32 bytes.
 #### Status
 
 A status enumeration, which is one of:
-* `ok`: The operation was successful.
-* `not-found`: The blob with the given hash or the store with the given name
-   was not found.
-* `already-exists`: The blob with the given hash or the store with the given
-   name already exists.
-* `no-space`: Save failed due to insufficient storage space.
+* **okay**: The operation was successful.
+* **not-found**: The blob with the given hash or the store with the given name
+    was not found.
+* **already-exists**: The blob with the given hash or the store with the given
+    name already exists.
+* **no-space**: Save failed due to insufficient storage space.
+* **internal-error**: The operation failed because of an internal failure in
+    the server. (This shouldn't normally happen.)
 
 ## Native Protocol
 
@@ -129,7 +138,8 @@ ResponseStream = {WELCOME, responses: Response*}
 ### Request and Response Frames
 
 ```
-Request = {STORE_CREATE, StoreName}
+Request = {STORE_LIST}
+        | {STORE_CREATE, StoreName}
         | {STORE_DESTROY, StoreName}
         | {BLOB_HASH, Blob}
         | {BLOB_LIST, StoreName}
@@ -139,31 +149,35 @@ Request = {STORE_CREATE, StoreName}
         | {BLOB_DELETE, StoreName, Hash}
 
 Response = Status
-         | HashResponse
-         | ListResponse
-         | LoadResponse
-         | SaveResponse
+         | StoreListResponse
+         | BlobHashResponse
+         | BlobListResponse
+         | BlobLoadResponse
+         | BlobSaveResponse
 
-HashResponse = {OK, Hash} | ErrorStatus
-ListResponse = {OK, Hashes} | ErrorStatus
-LoadResponse = {OK, Blob} | ErrorStatus
-SaveResponse = {OK | ALREADY_EXISTS | NO_SPACE, Hash} | INVALID_ARGUMENT
+StoreListResponse = {OK, StoreNames} | ErrorStatus
+BlobHashResponse = {OK, Hash} | ErrorStatus
+BlobListResponse = {OK, Hashes} | ErrorStatus
+BlobLoadResponse = {OK, Blob} | ErrorStatus
+BlobSaveResponse = {OK | ALREADY_EXISTS | NO_SPACE, Hash} | INVALID_ARGUMENT
 ```
 
 ### Values
 
 ```
-StoreName = {size: uint32, elems: [size x uint8]}
+StoreName = {size: uint16, elems: [size x uint8]}
+StoreNames = {size: uint64, elems: [size x StoreName]}
 Blob = {size: uint64, elems: [size x uint8]}
 Hash = [32 x uint8]
-Hashes = {size: uint32, elems: [size x Hash]}
+Hashes = {size: uint64, elems: [size x Hash]}
 
-Status = OK | ErrorStatus
+Status = OKAY | ErrorStatus
 
 ErrorStatus = NOT_FOUND
             | ALREADY_EXISTS
             | INVALID_ARGUMENT
             | NO_SPACE
+            | INTERNAL_ERROR
 ```
 
 

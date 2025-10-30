@@ -19,22 +19,23 @@ pub enum Request {
 }
 type StoreName = Name;
 
+#[derive(Debug)]
 pub enum Response {
     Status(Status),
     StoreList(Names),
     BlobHash(Hash),
     BlobList(Hashes),
     BlobLoad(Blob),
-    BlobSave(Status, Hash),
+    BlobSave((Status, Hash)),
 }
 
 #[repr(u64)]
-#[derive(TryFromPrimitive, IntoPrimitive)]
+#[derive(Debug, Copy, Clone, TryFromPrimitive, IntoPrimitive)]
 pub enum Status {
     Okay = code8!(b"okay\0\0\0\0"),
     NotFound = code8!(b"notfound"),
     AlreadyExists = code8!(b"itexists"),
-    InvalidArgument = code8!(b"badarg\0\0"),
+    BadArgument = code8!(b"badarg\0\0"),
     NoSpace = code8!(b"nospace\0"),
     InternalError = code8!(b"internal"),
 }
@@ -46,4 +47,5 @@ pub type Hashes = Box<[Hash]>;
 pub type HashStr = [u8; 64];
 pub type Blob = Box<[u8]>;
 
+pub type Code = u64;
 pub type Result<Val> = result::Result<Val, Status>;

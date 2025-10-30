@@ -1,6 +1,9 @@
 #![feature(iter_array_chunks)]
 
 mod macros;
-mod types;
+
+mod client;
+mod server;
+mod persister;
 mod send_recv;
-mod persist;
+mod types;
