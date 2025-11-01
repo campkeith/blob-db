@@ -1,27 +1,35 @@
 use std::net::{TcpListener, TcpStream};
 
 use crate::{log_ret_err, log_err_ret_val, log_err};
+use crate::funcs;
 use crate::persister::Persister;
 use crate::types::{Request, Response, Result, Status};
 use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome,
                        Send, Recv};
 
-struct Server {
+pub struct Server {
     inner: Persister,
     address: Box<str>,
 }
 
 impl Server {
-    #[allow(dead_code)]
-    fn go(&self) -> Result<()> {
-        let listener = log_ret_err!(TcpListener::bind(&*self.address));
+    pub fn create(inner: Persister) -> Result<Self> {
+        let server = Server{
+            inner,
+            address: funcs::env("BIND_ADDRESS")?,
+        };
+        Ok(server)
+    }
+
+    pub fn go(&self) -> Result<()> {
+        let listener = log_ret_err!(TcpListener::bind(self.address.as_ref()));
         for stream_result in listener.incoming() {
             match stream_result {
                 Err(error) => {
                     eprintln!("Error connecting to client: {error:?}: {error}");
                 }
                 Ok(mut stream) => {
-                    _ = self.handle_conn(&mut stream);
+                    self.client_session(&mut stream);
                 }
             }
         }
@@ -29,11 +37,25 @@ impl Server {
         Ok(())
     }
 
-    fn handle_conn(&self, stream: &mut TcpStream) -> Result<()> {
-        self.shake_hands(stream)?;
-        loop {
-            self.handle_request(stream)?;
+    fn client_session(&self, stream: &mut TcpStream) {
+        let peer_str = format_peer_addr(stream);
+        println!("Client {peer_str} connected.");
+        let result = self.handle_stream(stream);
+        match result {
+            Ok(_) => println!("Client {peer_str} disconnected."),
+            Err(status) => {
+                eprintln!("Dropping client {peer_str} due to {status:?}.");
+            }
         }
+    }
+
+    fn handle_stream(&self, stream: &mut TcpStream) -> Result<()> {
+        self.shake_hands(stream)?;
+        let mut run = true;
+        while run {
+            run = self.handle_request(stream)?;
+        }
+        Ok(())
     }
 
     fn shake_hands(&self, stream: &mut TcpStream) -> Result<()> {
@@ -45,59 +67,73 @@ impl Server {
         }
     }
 
-    fn handle_request(&self, stream: &mut TcpStream) -> Result<()> {
+    fn handle_request(&self, stream: &mut TcpStream) -> Result<bool> {
         let request = Request::recv(stream)?;
-        let response = self.process_request(&request);
-        response.send(stream)
+        let opt_response = self.process_request(&request);
+        match opt_response {
+            Some(response) => {
+                response.send(stream)?;
+                Ok(true)
+            },
+            None => Ok(false),
+        }
     }
 
-    fn process_request<'a>(&self, request: &Request) -> Response {
+    fn process_request<'a>(&self, request: &Request) -> Option<Response> {
         match request {
             Request::StoreList() => {
                 let result = self.inner.store_list();
-                match result {
+                Some(match result {
                     Ok(list) => Response::StoreList(list),
                     Err(status) => Response::Status(status),
-                }
+                })
             },
             Request::StoreCreate(name) => {
                 let status = self.inner.store_create(name);
-                Response::Status(status)
+                Some(Response::Status(status))
             },
             Request::StoreDestroy(name) => {
                 let status = self.inner.store_destroy(name);
-                Response::Status(status)
+                Some(Response::Status(status))
             },
             Request::BlobHash(blob) => {
-                let hash = self.inner.blob_hash(&blob);
-                Response::BlobHash(hash)
+                let hash = funcs::blob_hash(&blob);
+                Some(Response::BlobHash(hash))
             },
             Request::BlobList(store_name) => {
                 let result = self.inner.blob_list(store_name);
-                match result {
+                Some(match result {
                     Ok(list) => Response::BlobList(list),
                     Err(status) => Response::Status(status),
-                }
+                })
             },
             Request::BlobInfo(store_name, hash) => {
                 let status = self.inner.blob_info(store_name, hash);
-                Response::Status(status)
+                Some(Response::Status(status))
             },
             Request::BlobLoad(store_name, hash) => {
                 let result = self.inner.blob_load(store_name, hash);
-                match result {
+                Some(match result {
                     Ok(blob) => Response::BlobLoad(blob),
                     Err(status) => Response::Status(status),
-                }
+                })
             },
             Request::BlobSave(store_name, blob) => {
                 let (status, hash) = self.inner.blob_save(store_name, &blob);
-                Response::BlobSave((status, hash))
+                Some(Response::BlobSave((status, hash)))
             },
             Request::BlobDelete(store_name, hash) => {
                 let status = self.inner.blob_delete(store_name, hash);
-                Response::Status(status)
+                Some(Response::Status(status))
             }
+            Request::Bye => None,
         }
+    }
+}
+
+fn format_peer_addr(conn: &TcpStream) -> Box<str> {
+    match conn.peer_addr() {
+        Ok(peer) => format!("{peer:?}").into(),
+        Err(_) => Box::from("???"),
     }
 }

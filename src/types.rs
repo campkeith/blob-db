@@ -16,6 +16,7 @@ pub enum Request {
     BlobLoad(Name, Hash),
     BlobSave(Name, Blob),
     BlobDelete(Name, Hash),
+    Bye,
 }
 
 pub enum RequestRef<'a> {
@@ -29,6 +30,7 @@ pub enum RequestRef<'a> {
     BlobLoad(NameRef<'a>, HashRef<'a>),
     BlobSave(NameRef<'a>, BlobRef<'a>),
     BlobDelete(NameRef<'a>, HashRef<'a>),
+    Bye,
 }
 
 #[derive(Debug)]

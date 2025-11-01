@@ -34,7 +34,8 @@ enum RequestCode {
     BlobInfo = code8!(b"blobinfo"),
     BlobLoad = code8!(b"blobload"),
     BlobSave = code8!(b"blobsave"),
-    BlobDelete = code8!(b"blobdel\0"),
+    BlobDelete = code8!(b"blobdrop"),
+    Bye = code8!(b"Goodbye!"),
 }
 
 
@@ -81,6 +82,8 @@ impl Send for &RequestRef<'_> {
                 send!(stream, RequestCode::BlobSave, store_name, blob),
             RequestRef::BlobDelete(store_name, hash) =>
                 send!(stream, RequestCode::BlobDelete, store_name, hash),
+            RequestRef::Bye =>
+                send!(stream, RequestCode::Bye),
         }
         Ok(())
     }
@@ -215,6 +218,8 @@ impl Recv for Request {
                 Request::BlobSave(Name::recv(stream)?, Blob::recv(stream)?),
             RequestCode::BlobDelete =>
                 Request::BlobDelete(Name::recv(stream)?, Hash::recv(stream)?),
+            RequestCode::Bye =>
+                Request::Bye,
         };
         Ok(request)
     }

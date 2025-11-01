@@ -1,3 +1,4 @@
+use std::default::Default;
 use std::fs;
 use std::fs::{File, OpenOptions, DirEntry};
 use std::path::Path;
@@ -6,10 +7,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::io;
 use std::io::{Read, Write, ErrorKind};
 
-use sha2::{Sha256, Digest};
-
+use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err};
-use crate::types::{Name, NameRef, Names, Hash, HashRef, Hashes, Blob, BlobRef,
+use crate::types::{Name, NameRef, Names, Hash, HashRef, Hashes, Blob,
                    Status, Result};
 
 
@@ -32,6 +32,18 @@ pub struct Persister {
 }
 
 impl Persister {
+    pub fn create() -> Result<Persister> {
+        let base_dir_str = funcs::env("BASE_DIR")?;
+        let base_dir = Path::new(base_dir_str.as_ref());
+        if !base_dir.is_dir() {
+            eprintln!("Error: BASE_DIR={base_dir:?} is not a valid directory.");
+            return Err(Status::InternalError);
+        }
+        Ok(Persister{
+            base_dir: base_dir.into(),
+        })
+    }
+
     pub fn store_list(&self) -> Result<Names> {
         fn entry_to_name(entry_res: io::Result<DirEntry>) -> Result<Name> {
             let entry = log_ret_err!(entry_res);
@@ -61,11 +73,6 @@ impl Persister {
         log_err_ret_val!(result, Status::InternalError);
         Status::Okay
     }
-
-    pub fn blob_hash(&self, blob: BlobRef) -> Hash {
-        Sha256::digest(blob).into()
-    }
-
 
     pub fn blob_list(&self, store_name: NameRef) -> Result<Hashes> {
         fn entry_to_hash(entry_res: io::Result<DirEntry>) -> Result<Hash> {
@@ -101,7 +108,7 @@ impl Persister {
             Status::Okay
         };
 
-        let hash = self.blob_hash(blob);
+        let hash = funcs::blob_hash(blob);
         let result = self.blob_open(store_name, &hash, create_exclusive());
         match result {
             Err(status) => (status, hash),
@@ -154,8 +161,8 @@ fn hash_to_str(hash: HashRef) -> HashStr {
         }
     }
 
-    let mut hash_str = [0u8; 64];
-    for index in 0..32 {
+    let mut hash_str = zero_array();
+    for index in 0..hash.len() {
         [hash_str[2*index], hash_str[2*index + 1]] = byte_to_hex(hash[index]);
     }
     hash_str
@@ -180,9 +187,13 @@ fn str_to_hash(string: &[u8]) -> Result<Hash> {
     }
 
     let hash_str = log_ret_err!(HashStr::try_from(string));
-    let mut hash = [0u8; 32];
-    for index in 0..32 {
+    let mut hash: Hash = zero_array();
+    for index in 0..hash.len() {
         hash[index] = hex_to_byte([hash_str[2*index], hash_str[2*index + 1]])?;
     }
     Ok(hash)
+}
+
+fn zero_array<Elem: Default + Copy, const SIZE: usize>() -> [Elem; SIZE] {
+    [Elem::default(); SIZE]
 }
