@@ -134,6 +134,6 @@ impl Server {
 fn format_peer_addr(conn: &TcpStream) -> Box<str> {
     match conn.peer_addr() {
         Ok(peer) => format!("{peer:?}").into(),
-        Err(_) => Box::from("???"),
+        Err(_) => "???".into(),
     }
 }

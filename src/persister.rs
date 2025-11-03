@@ -1,4 +1,4 @@
-use std::default::Default;
+use std::mem;
 use std::fs;
 use std::fs::{File, OpenOptions, DirEntry};
 use std::path::Path;
@@ -52,7 +52,7 @@ impl Persister {
                     eprintln!("entry_to_name: non-unicode file name: {name:?}");
                     Err(Status::InternalError)
                 }
-                Ok(name) => Ok(name.into_boxed_str()),
+                Ok(name) => Ok(name.into()),
             }
         }
 
@@ -138,13 +138,13 @@ impl Persister {
     }
 
     fn store_path(&self, store_name: NameRef) -> Box<Path> {
-        self.base_dir.join(String::from(store_name)).into_boxed_path()
+        self.base_dir.join(store_name).into()
     }
 
     fn blob_path(&self, store_name: NameRef, hash: HashRef) -> Box<Path> {
         let hash_str = hash_to_str(hash);
         let file_name = OsStr::from_bytes(&hash_str);
-        self.store_path(store_name).join(file_name).into_boxed_path()
+        self.store_path(store_name).join(file_name).into()
     }
 }
 
@@ -152,7 +152,6 @@ fn hash_to_str(hash: HashRef) -> HashStr {
     fn byte_to_hex(byte: u8) -> [u8; 2] {
         [nibble_to_hex_digit(byte >> 4), nibble_to_hex_digit(byte & 0xf)]
     }
-
     fn nibble_to_hex_digit(nibble: u8) -> u8 {
         match nibble {
             0..10 => nibble + b'0',
@@ -160,21 +159,14 @@ fn hash_to_str(hash: HashRef) -> HashStr {
             _ => panic!("nibble_to_hex_digit: invalid nibble: {nibble}"),
         }
     }
-
-    let mut hash_str = zero_array();
-    for index in 0..hash.len() {
-        [hash_str[2*index], hash_str[2*index + 1]] = byte_to_hex(hash[index]);
-    }
-    hash_str
+    unsafe {mem::transmute(hash.map(byte_to_hex))}
 }
 
 fn str_to_hash(string: &[u8]) -> Result<Hash> {
-    fn hex_to_byte(hex: [u8; 2]) -> Result<u8> {
-        let [hi, lo] = hex;
+    fn hex_to_byte([hi, lo]: [u8; 2]) -> Result<u8> {
         let byte = hex_digit_to_nibble(hi)? << 4 | hex_digit_to_nibble(lo)?;
         Ok(byte)
     }
-
     fn hex_digit_to_nibble(digit: u8) -> Result<u8> {
         match digit {
             b'0'..=b'9' => Ok(digit - b'0'),
@@ -185,15 +177,7 @@ fn str_to_hash(string: &[u8]) -> Result<Hash> {
             },
         }
     }
-
     let hash_str = log_ret_err!(HashStr::try_from(string));
-    let mut hash: Hash = zero_array();
-    for index in 0..hash.len() {
-        hash[index] = hex_to_byte([hash_str[2*index], hash_str[2*index + 1]])?;
-    }
-    Ok(hash)
-}
-
-fn zero_array<Elem: Default + Copy, const SIZE: usize>() -> [Elem; SIZE] {
-    [Elem::default(); SIZE]
+    let hash_str_chunks: [[u8; 2]; _] = unsafe {mem::transmute(hash_str)};
+    hash_str_chunks.try_map(hex_to_byte)
 }

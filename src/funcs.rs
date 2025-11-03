@@ -9,7 +9,7 @@ use crate::types::{Hash, BlobRef, Status, Result};
 pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
     let name = name_in.as_ref();
     match env::var(name) {
-        Ok(val) => Ok(val.into_boxed_str()),
+        Ok(val) => Ok(val.into()),
         Err(_error) => {
             let name_str = name.to_string_lossy();
             eprintln!("Missing required environment variable: {name_str}");
