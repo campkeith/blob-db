@@ -88,42 +88,42 @@ impl Server {
                     Err(status) => Response::Status(status),
                 })
             },
-            Request::StoreCreate(name) => {
-                let status = self.inner.store_create(name);
+            Request::StoreCreate(store_id) => {
+                let status = self.inner.store_create(store_id);
                 Some(Response::Status(status))
             },
-            Request::StoreDestroy(name) => {
-                let status = self.inner.store_destroy(name);
+            Request::StoreDestroy(store_id) => {
+                let status = self.inner.store_destroy(store_id);
                 Some(Response::Status(status))
             },
             Request::BlobHash(blob) => {
-                let hash = funcs::blob_hash(&blob);
-                Some(Response::BlobHash(hash))
+                let blob_id = funcs::blob_hash(&blob);
+                Some(Response::BlobHash(blob_id))
             },
-            Request::BlobList(store_name) => {
-                let result = self.inner.blob_list(store_name);
+            Request::BlobList(store_id) => {
+                let result = self.inner.blob_list(store_id);
                 Some(match result {
                     Ok(list) => Response::BlobList(list),
                     Err(status) => Response::Status(status),
                 })
             },
-            Request::BlobInfo(store_name, hash) => {
-                let status = self.inner.blob_info(store_name, hash);
+            Request::BlobInfo(store_id, blob_id) => {
+                let status = self.inner.blob_info(store_id, blob_id);
                 Some(Response::Status(status))
             },
-            Request::BlobLoad(store_name, hash) => {
-                let result = self.inner.blob_load(store_name, hash);
+            Request::BlobLoad(store_id, blob_id) => {
+                let result = self.inner.blob_load(store_id, blob_id);
                 Some(match result {
                     Ok(blob) => Response::BlobLoad(blob),
                     Err(status) => Response::Status(status),
                 })
             },
-            Request::BlobSave(store_name, blob) => {
-                let (status, hash) = self.inner.blob_save(store_name, &blob);
-                Some(Response::BlobSave((status, hash)))
+            Request::BlobSave(store_id, blob) => {
+                let (status, blob_id) = self.inner.blob_save(store_id, &blob);
+                Some(Response::BlobSave((status, blob_id)))
             },
-            Request::BlobDelete(store_name, hash) => {
-                let status = self.inner.blob_delete(store_name, hash);
+            Request::BlobDelete(store_id, blob_id) => {
+                let status = self.inner.blob_delete(store_id, blob_id);
                 Some(Response::Status(status))
             }
             Request::Bye => None,

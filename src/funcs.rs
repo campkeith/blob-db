@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 
 use sha2::{Sha256, Digest};
 
-use crate::types::{Hash, BlobRef, Status, Result};
+use crate::types::{BlobId, BlobRef, Status, Result};
 
 
 pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
@@ -18,6 +18,6 @@ pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
     }
 }
 
-pub fn blob_hash(blob: BlobRef) -> Hash {
+pub fn blob_hash(blob: BlobRef) -> BlobId {
     Sha256::digest(blob).into()
 }

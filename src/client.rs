@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use tracing::instrument;
 
 use crate::{log_ret_err, log_err_ret_val, log_err};
-use crate::types::{Names, Hash, HashRef, Hashes, Blob,
+use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
                    RequestRef, Response, Result, Status};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
 
@@ -53,54 +53,54 @@ impl Client {
     }
 
     #[instrument(ret)]
-    pub fn store_list(&mut self) -> Result<Names> {
+    pub fn store_list(&mut self) -> Result<StoreIds> {
         send_req_recv_val!(self, StoreList())
     }
 
     #[instrument(ret)]
-    pub fn store_create(&mut self, name: impl AsRef<str> + Debug) -> Result<()> {
-        self.op_status_resp(RequestRef::StoreCreate(name.as_ref()))
+    pub fn store_create(&mut self, store_id: impl AsRef<str> + Debug) -> Result<()> {
+        self.op_status_resp(RequestRef::StoreCreate(store_id.as_ref()))
     }
 
     #[instrument(ret)]
-    pub fn store_destroy(&mut self, name: impl AsRef<str> + Debug) -> Result<()> {
-        self.op_status_resp(RequestRef::StoreDestroy(name.as_ref()))
+    pub fn store_destroy(&mut self, store_id: impl AsRef<str> + Debug) -> Result<()> {
+        self.op_status_resp(RequestRef::StoreDestroy(store_id.as_ref()))
     }
 
     #[instrument(ret)]
-    pub fn blob_hash(&mut self, blob: impl AsRef<[u8]> + Debug) -> Result<Hash> {
+    pub fn blob_hash(&mut self, blob: impl AsRef<[u8]> + Debug) -> Result<BlobId> {
         send_req_recv_val!(self, BlobHash(blob.as_ref()))
     }
 
     #[instrument(ret)]
-    pub fn blob_list(&mut self, store: impl AsRef<str> + Debug) -> Result<Hashes> {
-        send_req_recv_val!(self, BlobList(store.as_ref()))
+    pub fn blob_list(&mut self, store_id: impl AsRef<str> + Debug) -> Result<BlobIds> {
+        send_req_recv_val!(self, BlobList(store_id.as_ref()))
     }
 
     #[instrument(ret)]
-    pub fn blob_info(&mut self, store: impl AsRef<str> + Debug, hash: HashRef)
+    pub fn blob_info(&mut self, store_id: impl AsRef<str> + Debug, blob_id: BlobIdRef)
             -> Result<()> {
-        let request = RequestRef::BlobInfo(store.as_ref(), hash);
+        let request = RequestRef::BlobInfo(store_id.as_ref(), blob_id);
         self.op_status_resp(request)
     }
 
     #[instrument(ret)]
-    pub fn blob_load(&mut self, store: impl AsRef<str> + Debug,
-                                hash: HashRef) -> Result<Blob> {
-        send_req_recv_val!(self, BlobLoad(store.as_ref(), hash))
+    pub fn blob_load(&mut self, store_id: impl AsRef<str> + Debug,
+                                blob_id: BlobIdRef) -> Result<Blob> {
+        send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id))
     }
 
     #[instrument(ret)]
-    pub fn blob_save(&mut self, store: impl AsRef<str> + Debug,
+    pub fn blob_save(&mut self, store_id: impl AsRef<str> + Debug,
                      blob: impl AsRef<[u8]> + Debug)
-            -> Result<(Status, Hash)> {
-        send_req_recv_val!(self, BlobSave(store.as_ref(), blob.as_ref()))
+            -> Result<(Status, BlobId)> {
+        send_req_recv_val!(self, BlobSave(store_id.as_ref(), blob.as_ref()))
     }
 
     #[instrument(ret)]
-    pub fn blob_delete(&mut self, store: impl AsRef<str> + Debug, hash: HashRef)
+    pub fn blob_delete(&mut self, store_id: impl AsRef<str> + Debug, blob_id: BlobIdRef)
             -> Result<()> {
-        let request = RequestRef::BlobDelete(store.as_ref(), hash);
+        let request = RequestRef::BlobDelete(store_id.as_ref(), blob_id);
         self.op_status_resp(request)
     }
 

@@ -7,40 +7,40 @@ use crate::code8;
 
 pub enum Request {
     StoreList(),
-    StoreCreate(Name),
-    StoreDestroy(Name),
+    StoreCreate(StoreId),
+    StoreDestroy(StoreId),
     BlobHash(Blob),
 
-    BlobList(Name),
-    BlobInfo(Name, Hash),
-    BlobLoad(Name, Hash),
-    BlobSave(Name, Blob),
-    BlobDelete(Name, Hash),
+    BlobList(StoreId),
+    BlobInfo(StoreId, BlobId),
+    BlobLoad(StoreId, BlobId),
+    BlobSave(StoreId, Blob),
+    BlobDelete(StoreId, BlobId),
     Bye,
 }
 
 pub enum RequestRef<'a> {
     StoreList(),
-    StoreCreate(NameRef<'a>),
-    StoreDestroy(NameRef<'a>),
+    StoreCreate(StoreIdRef<'a>),
+    StoreDestroy(StoreIdRef<'a>),
     BlobHash(BlobRef<'a>),
 
-    BlobList(NameRef<'a>),
-    BlobInfo(NameRef<'a>, HashRef<'a>),
-    BlobLoad(NameRef<'a>, HashRef<'a>),
-    BlobSave(NameRef<'a>, BlobRef<'a>),
-    BlobDelete(NameRef<'a>, HashRef<'a>),
+    BlobList(StoreIdRef<'a>),
+    BlobInfo(StoreIdRef<'a>, BlobIdRef<'a>),
+    BlobLoad(StoreIdRef<'a>, BlobIdRef<'a>),
+    BlobSave(StoreIdRef<'a>, BlobRef<'a>),
+    BlobDelete(StoreIdRef<'a>, BlobIdRef<'a>),
     Bye,
 }
 
 #[derive(Debug)]
 pub enum Response {
     Status(Status),
-    StoreList(Names),
-    BlobHash(Hash),
-    BlobList(Hashes),
+    StoreList(StoreIds),
+    BlobHash(BlobId),
+    BlobList(BlobIds),
     BlobLoad(Blob),
-    BlobSave((Status, Hash)),
+    BlobSave((Status, BlobId)),
 }
 
 #[repr(u64)]
@@ -54,16 +54,16 @@ pub enum Status {
     InternalError = code8!(b"internal"),
 }
 
-pub type Name = Box<str>;
-pub type Names = Box<[Name]>;
-pub type Hash = [u8; 32];
-pub type Hashes = Box<[Hash]>;
+pub type StoreId = Box<str>;
+pub type StoreIds = Box<[StoreId]>;
+pub type BlobId = [u8; 32];
+pub type BlobIds = Box<[BlobId]>;
 pub type Blob = Box<[u8]>;
 
-pub type NameRef<'a> = &'a str;
-pub type NamesRef<'a> = &'a [Name];
-pub type HashRef<'a> = &'a Hash;
-pub type HashesRef<'a> = &'a [Hash];
+pub type StoreIdRef<'a> = &'a str;
+pub type StoreIdsRef<'a> = &'a [StoreId];
+pub type BlobIdRef<'a> = &'a BlobId;
+pub type BlobIdsRef<'a> = &'a [BlobId];
 pub type BlobRef<'a> = &'a [u8];
 
 pub type Code = u64;

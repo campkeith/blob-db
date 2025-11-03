@@ -3,18 +3,18 @@ use std::cmp;
 use rand::Rng;
 use rand::distr::{Alphanumeric, SampleString, Uniform};
 
-use blob_db::types::{Name, Hash, Blob};
+use blob_db::types::{StoreId, BlobId, Blob};
 
 
-pub fn name(rng: &mut impl Rng, max_size: usize) -> Name {
+pub fn store_id(rng: &mut impl Rng, max_size: usize) -> StoreId {
     let size = size_geometric(rng, max_size);
     Alphanumeric.sample_string(&mut rand::rng(), size).into()
 }
 
-pub fn hash(rng: &mut impl Rng) -> Hash {
-    let mut hash = Hash::default();
-    rng.fill(&mut hash);
-    hash
+pub fn blob_id(rng: &mut impl Rng) -> BlobId {
+    let mut blob_id = BlobId::default();
+    rng.fill(&mut blob_id);
+    blob_id
 }
 
 pub fn blob(rng: &mut impl Rng, max_size: usize) -> Blob {
