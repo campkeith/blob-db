@@ -3,7 +3,8 @@ use std::io::{Read, Write};
 
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
-use crate::{log_ret_err, log_err_ret_val, log_err, code8};
+use crate::funcs::code8;
+use crate::{log_ret_err, log_err_ret_val, log_err};
 use crate::types::{
     Request, RequestRef, Response, Status, Result, Code,
     StoreId, StoreIds, BlobId, BlobIds, Blob,
@@ -14,29 +15,29 @@ use crate::types::{
 type ProtoVersion = u16;
 const PROTO_VERSION: ProtoVersion = 1;
 
-const CODE_OPEN_DOOR: Code = code8!(b"OpenDoor");
+const CODE_OPEN_DOOR: Code = code8(b"OpenDoor");
 
 #[repr(u64)]
 #[derive(TryFromPrimitive, IntoPrimitive)]
 enum GreetCode {
-    Welcome = code8!(b"Welcome!"),
-    NotWelcome = code8!(b"Go away!"),
+    Welcome = code8(b"Welcome!"),
+    NotWelcome = code8(b"Go away!"),
 }
 
 #[repr(u64)]
 #[derive(TryFromPrimitive, IntoPrimitive)]
 enum RequestCode {
-    StoreList = code8!(b"storlist"),
-    StoreCreate = code8!(b"storenew"),
-    StoreDestroy = code8!(b"storedel"),
-    BlobHash = code8!(b"blobhash"),
+    StoreList = code8(b"storlist"),
+    StoreCreate = code8(b"storenew"),
+    StoreDestroy = code8(b"storedel"),
+    BlobHash = code8(b"blobhash"),
 
-    BlobList = code8!(b"bloblist"),
-    BlobInfo = code8!(b"blobinfo"),
-    BlobLoad = code8!(b"blobload"),
-    BlobSave = code8!(b"blobsave"),
-    BlobDelete = code8!(b"blobdrop"),
-    Bye = code8!(b"Goodbye!"),
+    BlobList = code8(b"bloblist"),
+    BlobInfo = code8(b"blobinfo"),
+    BlobLoad = code8(b"blobload"),
+    BlobSave = code8(b"blobsave"),
+    BlobDelete = code8(b"blobdrop"),
+    Bye = code8(b"Goodbye!"),
 }
 
 

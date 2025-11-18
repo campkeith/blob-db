@@ -1,4 +1,3 @@
-use std::mem;
 use std::fs;
 use std::fs::{File, OpenOptions, DirEntry};
 use std::path::Path;
@@ -11,9 +10,6 @@ use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err};
 use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
                    Status, Result};
-
-
-type BlobIdStr = [u8; 64];
 
 
 /* Apparently setting option bits is so complicated
@@ -77,7 +73,7 @@ impl Persister {
     pub fn blob_list(&self, store_id: StoreIdRef) -> Result<BlobIds> {
         fn entry_to_hash(entry_res: io::Result<DirEntry>) -> Result<BlobId> {
             let entry = log_ret_err!(entry_res);
-            str_to_hash(entry.file_name().as_bytes())
+            funcs::str_to_hash(entry.file_name().as_bytes())
         }
 
         let store_iter = fs::read_dir(self.store_path(store_id));
@@ -142,42 +138,8 @@ impl Persister {
     }
 
     fn blob_path(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Box<Path> {
-        let blob_id_str = hash_to_str(blob_id);
+        let blob_id_str = funcs::hash_to_str(blob_id);
         let file_name = OsStr::from_bytes(&blob_id_str);
         self.store_path(store_id).join(file_name).into()
     }
-}
-
-fn hash_to_str(hash: BlobIdRef) -> BlobIdStr {
-    fn byte_to_hex(byte: u8) -> [u8; 2] {
-        [nibble_to_hex_digit(byte >> 4), nibble_to_hex_digit(byte & 0xf)]
-    }
-    fn nibble_to_hex_digit(nibble: u8) -> u8 {
-        match nibble {
-            0..10 => nibble + b'0',
-            10..16 => nibble - 10 + b'a',
-            _ => panic!("nibble_to_hex_digit: invalid nibble: {nibble}"),
-        }
-    }
-    unsafe {mem::transmute(hash.map(byte_to_hex))}
-}
-
-fn str_to_hash(string: &[u8]) -> Result<BlobId> {
-    fn hex_to_byte([hi, lo]: [u8; 2]) -> Result<u8> {
-        let byte = hex_digit_to_nibble(hi)? << 4 | hex_digit_to_nibble(lo)?;
-        Ok(byte)
-    }
-    fn hex_digit_to_nibble(digit: u8) -> Result<u8> {
-        match digit {
-            b'0'..=b'9' => Ok(digit - b'0'),
-            b'a'..=b'f' => Ok(digit - b'a' + 10),
-            _ => {
-                eprintln!("hex_digit_to_nibble: invalid hex digit '{digit}'");
-                Err(Status::InternalError)
-            },
-        }
-    }
-    let hash_str = log_ret_err!(BlobIdStr::try_from(string));
-    let hash_str_chunks: [[u8; 2]; _] = unsafe {mem::transmute(hash_str)};
-    hash_str_chunks.try_map(hex_to_byte)
 }

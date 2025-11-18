@@ -22,7 +22,6 @@ struct Args {
 }
 
 fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
     let args = Args::parse();
     let mut rig = TestRig{
         client: Client::connect(args.address.as_ref())?,
@@ -40,14 +39,14 @@ struct TestRig {
 
 impl TestRig {
     const MAX_STORE_ID_SIZE: usize = 64;
-    const MAX_BLOB_SIZE: usize = 1 << 8;
+    const MAX_BLOB_SIZE: usize = 1 << 20;
 
     fn go(&mut self, iterations: u64) -> Result<()> {
         type TestFn = dyn Fn(&mut TestRig) -> Result<()>;
         type WeightedTestFns<'a> = Vec<(&'a TestFn, f32)>;
 
         let ops: WeightedTestFns = vec![
-            (&Self::test_store_list, 0.1),
+            (&Self::test_store_list, 0.2),
             (&Self::test_store_create, 0.2),
             (&Self::test_store_destroy, 0.1),
             (&Self::test_blob_list, 1.),

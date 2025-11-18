@@ -1,12 +1,11 @@
 use std::net::{TcpStream, ToSocketAddrs};
 use std::fmt::Debug;
 
-use tracing::instrument;
-
-use crate::{log_ret_err, log_err_ret_val, log_err};
+use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
 use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
                    RequestRef, Response, Result, Status};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
+use crate::trace::Trace;
 
 
 macro_rules!
@@ -30,21 +29,32 @@ pub struct Client {
     stream: TcpStream,
 }
 
+impl Trace for Client {
+    fn trace(&self) -> String {
+        format!("{self:?}")
+    }
+}
+
 impl Drop for Client {
     fn drop(&mut self) {
-        if let Err(status) = RequestRef::Bye.send(&mut self.stream) {
-            eprintln!("Client::drop: failed to send Bye: {status:?}");
-        }
+        log_call!(Client::drop[] ->
+            if let Err(status) = RequestRef::Bye.send(&mut self.stream) {
+                eprintln!("Client::drop: failed to send Bye: {status:?}");
+            }
+        )
     }
 }
 
 impl Client {
-    #[instrument(ret)]
-    pub fn connect(address: impl ToSocketAddrs + Debug) -> Result<Self> {
-        let stream = log_ret_err!(TcpStream::connect(address));
-        let mut client = Client{stream};
-        client.shake_hands()?;
-        Ok(client)
+    pub fn connect(address_in: impl ToSocketAddrs + Debug) -> Result<Self> {
+        let address_dbg = format!("{address_in:?}");
+        let address = &address_dbg[1 .. address_dbg.len() - 1];
+        log_call!(Client::connect[address] -> {
+            let stream = log_ret_err!(TcpStream::connect(address_in));
+            let mut client = Client{stream};
+            client.shake_hands()?;
+            Ok(client)
+        })
     }
 
     fn shake_hands(&mut self) -> Result<()> {
@@ -52,56 +62,77 @@ impl Client {
         recv_welcome(&mut self.stream)
     }
 
-    #[instrument(ret)]
     pub fn store_list(&mut self) -> Result<StoreIds> {
-        send_req_recv_val!(self, StoreList())
+        log_call!(Client::store_list[] ->
+            send_req_recv_val!(self, StoreList())
+        )
     }
 
-    #[instrument(ret)]
-    pub fn store_create(&mut self, store_id: impl AsRef<str> + Debug) -> Result<()> {
-        self.op_status_resp(RequestRef::StoreCreate(store_id.as_ref()))
+    pub fn store_create(&mut self, store_id_in: impl AsRef<str>) -> Result<()> {
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::store_create[store_id] ->
+            self.op_status_resp(RequestRef::StoreCreate(store_id))
+        )
     }
 
-    #[instrument(ret)]
-    pub fn store_destroy(&mut self, store_id: impl AsRef<str> + Debug) -> Result<()> {
-        self.op_status_resp(RequestRef::StoreDestroy(store_id.as_ref()))
+    pub fn store_destroy(&mut self, store_id_in: impl AsRef<str>) -> Result<()> {
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::store_destroy[store_id] ->
+            self.op_status_resp(RequestRef::StoreDestroy(store_id))
+        )
     }
 
-    #[instrument(ret)]
-    pub fn blob_hash(&mut self, blob: impl AsRef<[u8]> + Debug) -> Result<BlobId> {
-        send_req_recv_val!(self, BlobHash(blob.as_ref()))
+    pub fn blob_hash(&mut self, blob_in: impl AsRef<[u8]>) -> Result<BlobId> {
+        let blob = blob_in.as_ref();
+        log_call!(Client::blob_hash[blob] ->
+            send_req_recv_val!(self, BlobHash(blob))
+        )
     }
 
-    #[instrument(ret)]
-    pub fn blob_list(&mut self, store_id: impl AsRef<str> + Debug) -> Result<BlobIds> {
-        send_req_recv_val!(self, BlobList(store_id.as_ref()))
+    pub fn blob_list(&mut self, store_id_in: impl AsRef<str>)
+            -> Result<BlobIds> {
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::blob_list[store_id] ->
+            send_req_recv_val!(self, BlobList(store_id))
+        )
     }
 
-    #[instrument(ret)]
-    pub fn blob_info(&mut self, store_id: impl AsRef<str> + Debug, blob_id: BlobIdRef)
+    pub fn blob_info(&mut self, store_id_in: impl AsRef<str>,
+                     blob_id: BlobIdRef)
             -> Result<()> {
-        let request = RequestRef::BlobInfo(store_id.as_ref(), blob_id);
-        self.op_status_resp(request)
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::blob_info[store_id, blob_id] -> {
+            let request = RequestRef::BlobInfo(store_id, blob_id);
+            self.op_status_resp(request)
+        })
     }
 
-    #[instrument(ret)]
-    pub fn blob_load(&mut self, store_id: impl AsRef<str> + Debug,
+    pub fn blob_load(&mut self, store_id_in: impl AsRef<str>,
                                 blob_id: BlobIdRef) -> Result<Blob> {
-        send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id))
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::blob_load[store_id, blob_id] -> {
+            send_req_recv_val!(self, BlobLoad(store_id, blob_id))
+        })
     }
 
-    #[instrument(ret)]
-    pub fn blob_save(&mut self, store_id: impl AsRef<str> + Debug,
-                     blob: impl AsRef<[u8]> + Debug)
+    pub fn blob_save(&mut self, store_id_in: impl AsRef<str>,
+                     blob_in: impl AsRef<[u8]>)
             -> Result<(Status, BlobId)> {
-        send_req_recv_val!(self, BlobSave(store_id.as_ref(), blob.as_ref()))
+        let store_id = store_id_in.as_ref();
+        let blob = blob_in.as_ref();
+        log_call!(Client::blob_save[store_id, blob] ->
+            send_req_recv_val!(self, BlobSave(store_id, blob))
+        )
     }
 
-    #[instrument(ret)]
-    pub fn blob_delete(&mut self, store_id: impl AsRef<str> + Debug, blob_id: BlobIdRef)
+    pub fn blob_delete(&mut self, store_id_in: impl AsRef<str>,
+                       blob_id: BlobIdRef)
             -> Result<()> {
-        let request = RequestRef::BlobDelete(store_id.as_ref(), blob_id);
-        self.op_status_resp(request)
+        let store_id = store_id_in.as_ref();
+        log_call!(Client::blob_delete[store_id, blob_id] -> {
+            let request = RequestRef::BlobDelete(store_id, blob_id);
+            self.op_status_resp(request)
+        })
     }
 
     fn op_status_resp(&mut self, request: RequestRef) -> Result<()> {

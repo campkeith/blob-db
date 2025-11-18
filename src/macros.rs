@@ -20,7 +20,6 @@ log_err{($error: expr) => {
     eprintln!("{file}:{line}: {error:?}: {error}");
 }}
 
-
 #[macro_export] macro_rules!
 map_ret_err{($result: expr, $err_kind: expr, $err_ret_val: expr) => {
     if let Err(ref error) = $result {
@@ -31,6 +30,15 @@ map_ret_err{($result: expr, $err_kind: expr, $err_ret_val: expr) => {
 }}
 
 #[macro_export] macro_rules!
-code8 {($byte_string: expr) => {
-    u64::from_le_bytes(*$byte_string)
-}}
+log_call{($name: path[$($params: ident), *] -> $out: expr) => {{
+    let name = stringify!($name);
+    let param_strs: [String; _] = [$(
+        format!("{}={}", stringify!($params), $params.trace()),
+    )*];
+    let params_str = param_strs.join(", ");
+    println!("{name}({params_str}):");
+    let out = (|| $out)();
+    let out_str = out.trace();
+    println!("{name} -> {out_str}");
+    out
+}}}

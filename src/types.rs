@@ -1,8 +1,7 @@
 use std::result;
 
+use crate::funcs::code8;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
-
-use crate::code8;
 
 
 pub enum Request {
@@ -46,17 +45,18 @@ pub enum Response {
 #[repr(u64)]
 #[derive(Debug, Copy, Clone, PartialEq, TryFromPrimitive, IntoPrimitive)]
 pub enum Status {
-    Okay = code8!(b"okay\0\0\0\0"),
-    NotFound = code8!(b"notfound"),
-    AlreadyExists = code8!(b"itexists"),
-    BadArgument = code8!(b"badarg\0\0"),
-    NoSpace = code8!(b"nospace\0"),
-    InternalError = code8!(b"internal"),
+    Okay = code8(b"okay\0\0\0\0"),
+    NotFound = code8(b"notfound"),
+    AlreadyExists = code8(b"itexists"),
+    BadArgument = code8(b"badarg\0\0"),
+    NoSpace = code8(b"nospace\0"),
+    InternalError = code8(b"internal"),
 }
 
 pub type StoreId = Box<str>;
 pub type StoreIds = Box<[StoreId]>;
 pub type BlobId = [u8; 32];
+pub type BlobIdStr = [u8; 64];
 pub type BlobIds = Box<[BlobId]>;
 pub type Blob = Box<[u8]>;
 
