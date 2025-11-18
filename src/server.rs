@@ -1,15 +1,24 @@
+use std::fmt;
 use std::net::{TcpListener, TcpStream};
 
-use crate::{log_ret_err, log_err_ret_val, log_err};
+use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
 use crate::funcs;
 use crate::persister::Persister;
-use crate::types::{Request, Response, Result, Status};
+use crate::types::{Request, Response, Result, Status, Blob};
 use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome,
                        Send, Recv};
 
 pub struct Server {
     inner: Persister,
     address: Box<str>,
+}
+
+impl fmt::Debug for Server {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        out.debug_tuple("Server")
+           .field(&self.address)
+           .finish()
+    }
 }
 
 impl Server {
@@ -69,7 +78,9 @@ impl Server {
 
     fn handle_request(&self, stream: &mut TcpStream) -> Result<bool> {
         let request = Request::recv(stream)?;
-        let opt_response = self.process_request(&request);
+        let opt_response = log_call!(self.process_request(request) ->
+            self.process_request(&request)
+        );
         match opt_response {
             Some(response) => {
                 response.send(stream)?;
@@ -96,7 +107,7 @@ impl Server {
                 let status = self.inner.store_destroy(store_id);
                 Some(Response::Status(status))
             },
-            Request::BlobHash(blob) => {
+            Request::BlobHash(Blob(blob)) => {
                 let blob_id = funcs::blob_hash(&blob);
                 Some(Response::BlobHash(blob_id))
             },

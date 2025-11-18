@@ -8,5 +8,5 @@ pub mod client;
 pub mod server;
 pub mod persister;
 pub mod funcs;
-mod trace;
 mod send_recv;
+mod debug;

@@ -1,13 +1,12 @@
-use std::fs;
-use std::fs::{File, OpenOptions, DirEntry};
+use std::fmt;
+use std::fs::{self, File, OpenOptions, DirEntry};
 use std::path::Path;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use std::io;
-use std::io::{Read, Write, ErrorKind};
+use std::io::{self, Read, Write, ErrorKind};
 
 use crate::funcs;
-use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err};
+use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err, log_call};
 use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
                    Status, Result};
 
@@ -25,6 +24,14 @@ fn create_exclusive() -> OpenOptions {
 
 pub struct Persister {
     base_dir: Box<Path>,
+}
+
+impl fmt::Debug for Persister {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        out.debug_tuple("Persister")
+           .field(&self.base_dir)
+           .finish()
+    }
 }
 
 impl Persister {
@@ -52,22 +59,28 @@ impl Persister {
             }
         }
 
-        let dir_iter = log_ret_err!(fs::read_dir(&self.base_dir));
-        dir_iter.map(entry_to_name).collect()
+        log_call!(self.store_list() -> {
+            let dir_iter = log_ret_err!(fs::read_dir(&self.base_dir));
+            dir_iter.map(entry_to_name).collect()
+        })
     }
 
     pub fn store_create(&self, store_id: StoreIdRef) -> Status {
-        let result = fs::create_dir(self.store_path(store_id));
-        map_ret_err!(result, ErrorKind::AlreadyExists, Status::AlreadyExists);
-        log_err_ret_val!(result, Status::InternalError);
-        Status::Okay
+        log_call!(self.store_create(store_id) -> {
+            let result = fs::create_dir(self.store_path(store_id));
+            map_ret_err!(result, ErrorKind::AlreadyExists, Status::AlreadyExists);
+            log_err_ret_val!(result, Status::InternalError);
+            Status::Okay
+        })
     }
 
     pub fn store_destroy(&self, store_id: StoreIdRef) -> Status {
-        let result = fs::remove_dir_all(self.store_path(store_id));
-        map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
-        log_err_ret_val!(result, Status::InternalError);
-        Status::Okay
+        log_call!(self.store_destroy(store_id) -> {
+            let result = fs::remove_dir_all(self.store_path(store_id));
+            map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
+            log_err_ret_val!(result, Status::InternalError);
+            Status::Okay
+        })
     }
 
     pub fn blob_list(&self, store_id: StoreIdRef) -> Result<BlobIds> {
@@ -76,47 +89,58 @@ impl Persister {
             funcs::str_to_hash(entry.file_name().as_bytes())
         }
 
-        let store_iter = fs::read_dir(self.store_path(store_id));
-        map_ret_err!(store_iter, ErrorKind::NotFound, Err(Status::NotFound));
-        log_ret_err!(store_iter).map(entry_to_hash).collect()
+        log_call!(self.blob_list(store_id) -> {
+            let store_iter = fs::read_dir(self.store_path(store_id));
+            map_ret_err!(store_iter, ErrorKind::NotFound, Err(Status::NotFound));
+            log_ret_err!(store_iter).map(entry_to_hash).collect()
+        })
     }
 
     pub fn blob_info(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Status {
-        match self.blob_open(store_id, blob_id, read_only()) {
-            Err(status) => status,
-            Ok(_) => Status::Okay,
-        }
+        log_call!(self.blob_info(store_id, blob_id) -> {
+            match self.blob_open(store_id, blob_id, read_only()) {
+                Err(status) => status,
+                Ok(_) => Status::Okay,
+            }
+        })
     }
 
     pub fn blob_load(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Result<Blob> {
-        let mut file = self.blob_open(store_id, blob_id, read_only())?;
-        let metadata = log_ret_err!(file.metadata());
-        let size = log_ret_err!(usize::try_from(metadata.len()));
-        let buf_uninit = Box::new_uninit_slice(size);
-        let mut buffer = unsafe {buf_uninit.assume_init()};
-        log_ret_err!(file.read_exact(&mut buffer));
-        Ok(buffer)
+        log_call!(self.blob_load(store_id, blob_id) -> {
+            let mut file = self.blob_open(store_id, blob_id, read_only())?;
+            let metadata = log_ret_err!(file.metadata());
+            let size = log_ret_err!(usize::try_from(metadata.len()));
+            let buf_uninit = Box::new_uninit_slice(size);
+            let mut buffer = unsafe {buf_uninit.assume_init()};
+            log_ret_err!(file.read_exact(&mut buffer));
+            Ok(Blob(buffer))
+        })
     }
 
     pub fn blob_save(&self, store_id: StoreIdRef, blob: & Blob) -> (Status, BlobId) {
+        let Blob(buf) = blob;
         let save = |mut file: File| {
-            log_err_ret_val!(file.write_all(blob), Status::InternalError);
+            log_err_ret_val!(file.write_all(buf), Status::InternalError);
             Status::Okay
         };
 
-        let blob_id = funcs::blob_hash(blob);
-        let result = self.blob_open(store_id, &blob_id, create_exclusive());
-        match result {
-            Err(status) => (status, blob_id),
-            Ok(file) => (save(file), blob_id),
-        }
+        log_call!(self.blob_save(store_id, blob) -> {
+            let blob_id = funcs::blob_hash(buf);
+            let result = self.blob_open(store_id, &blob_id, create_exclusive());
+            match result {
+                Err(status) => (status, blob_id),
+                Ok(file) => (save(file), blob_id),
+            }
+        })
     }
 
     pub fn blob_delete(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Status {
-        let result = fs::remove_file(self.blob_path(store_id, blob_id));
-        map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
-        log_err_ret_val!(result, Status::InternalError);
-        Status::Okay
+        log_call!(self.blob_delete(store_id, blob_id) -> {
+            let result = fs::remove_file(self.blob_path(store_id, blob_id));
+            map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
+            log_err_ret_val!(result, Status::InternalError);
+            Status::Okay
+        })
     }
 
 

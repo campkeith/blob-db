@@ -30,15 +30,32 @@ map_ret_err{($result: expr, $err_kind: expr, $err_ret_val: expr) => {
 }}
 
 #[macro_export] macro_rules!
-log_call{($name: path[$($params: ident), *] -> $out: expr) => {{
-    let name = stringify!($name);
-    let param_strs: [String; _] = [$(
-        format!("{}={}", stringify!($params), $params.trace()),
-    )*];
-    let params_str = param_strs.join(", ");
-    println!("{name}({params_str}):");
-    let out = (|| $out)();
-    let out_str = out.trace();
-    println!("{name} -> {out_str}");
-    out
-}}}
+log_call{
+    ($self: ident . $name: ident ($($param: ident), *)
+            -> $out: expr) => {
+        log_call!(core: $self.$name($($param), *) -> $out)
+    };
+
+    ($name: ident ($($param: ident), *) -> $out: expr) => {
+        log_call!(core: .$name($($param), *) -> $out)
+    };
+
+    (core: $($self: ident)? . $name: ident ($($param: ident), *)
+            -> $out: expr) => {{
+        let param_strs: [String; _] = [$(
+            format!("{}={:?}", stringify!($param), $param),
+        )*];
+        let name = stringify!($name);
+        let base = log_call!(
+            if $($self)? then {format!("{:?}.{name}", $($self)?)}
+            else {format!("{name}")}
+        );
+        println!("{base}({}):", param_strs.join(", "));
+        let out = (|| $out)();
+        println!("{base} -> {:?}", out);
+        out
+    }};
+
+    (if $pred: ident then {$a: expr} else {$b: expr}) => {$a};
+    (if then {$a: expr} else {$b: expr}) => {$b};
+}

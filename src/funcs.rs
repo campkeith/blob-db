@@ -21,14 +21,14 @@ pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
 }
 
 pub fn blob_hash(blob: BlobRef) -> BlobId {
-    Sha256::digest(blob).into()
+    BlobId(Sha256::digest(blob).into())
 }
 
 pub const fn code8(bytes: & [u8; 8]) -> u64 {
     u64::from_le_bytes(*bytes)
 }
 
-pub fn hash_to_str(hash: BlobIdRef) -> BlobIdStr {
+pub fn hash_to_str(blob_id: BlobIdRef) -> BlobIdStr {
     fn byte_to_hex(byte: u8) -> [u8; 2] {
         [nibble_to_hex_digit(byte >> 4), nibble_to_hex_digit(byte & 0xf)]
     }
@@ -39,6 +39,8 @@ pub fn hash_to_str(hash: BlobIdRef) -> BlobIdStr {
             _ => panic!("nibble_to_hex_digit: invalid nibble: {nibble}"),
         }
     }
+
+    let BlobId(hash) = blob_id;
     unsafe {mem::transmute(hash.map(byte_to_hex))}
 }
 
@@ -59,5 +61,6 @@ pub fn str_to_hash(string: &[u8]) -> Result<BlobId> {
     }
     let hash_str = log_ret_err!(BlobIdStr::try_from(string));
     let hash_str_chunks: [[u8; 2]; _] = unsafe {mem::transmute(hash_str)};
-    hash_str_chunks.try_map(hex_to_byte)
+    let hash = hash_str_chunks.try_map(hex_to_byte)?;
+    Ok(BlobId(hash))
 }

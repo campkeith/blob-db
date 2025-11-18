@@ -102,7 +102,7 @@ impl TestRig {
 
     fn test_blob_hash(&mut self) -> Result<()> {
         let blob = fake::blob(&mut self.rng, Self::MAX_BLOB_SIZE);
-        let exp_blob_id = funcs::blob_hash(&blob);
+        let exp_blob_id = funcs::blob_hash(blob.as_ref());
         let blob_id = self.client.blob_hash(blob)?;
         assert_eq!(blob_id, exp_blob_id);
         Ok(())
@@ -160,7 +160,7 @@ impl TestRig {
                 (sel_blob_id, blob)
             } else {
                 let blob = fake::blob(&mut self.rng, Self::MAX_BLOB_SIZE);
-                let blob_id = funcs::blob_hash(&blob);
+                let blob_id = funcs::blob_hash(blob.as_ref());
                 (blob_id, blob)
             };
         let (status, blob_id) = self.client.blob_save(&store_id, &blob)?;

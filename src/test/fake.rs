@@ -12,16 +12,16 @@ pub fn store_id(rng: &mut impl Rng, max_size: usize) -> StoreId {
 }
 
 pub fn blob_id(rng: &mut impl Rng) -> BlobId {
-    let mut blob_id = BlobId::default();
-    rng.fill(&mut blob_id);
-    blob_id
+    let mut hash = Default::default();
+    rng.fill(&mut hash);
+    BlobId(hash)
 }
 
 pub fn blob(rng: &mut impl Rng, max_size: usize) -> Blob {
     let size = size_geometric(rng, max_size);
     let mut bytes = unsafe {Box::new_uninit_slice(size).assume_init()};
     rng.fill(bytes.as_mut());
-    bytes
+    Blob(bytes)
 }
 
 pub fn size_geometric(rng: &mut impl Rng, max_size: usize) -> usize {
