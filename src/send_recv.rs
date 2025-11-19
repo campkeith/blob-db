@@ -6,7 +6,7 @@ use num_enum::{TryFromPrimitive, IntoPrimitive};
 use crate::funcs::code8;
 use crate::{log_ret_err, log_err_ret_val, log_err};
 use crate::types::{
-    Request, RequestRef, Response, Status, Result, Code,
+    Request, RequestRef, Response, Status, SaveStatus, Result, Code,
     StoreId, StoreIds, BlobId, BlobIds, Blob,
     StoreIdRef, BlobIdsRef, BlobRef,
 };
@@ -170,7 +170,7 @@ macro_rules! impl_send_for_enum {($($Enum: ty), +) => {$(
         }
     }
 )+}}
-impl_send_for_enum!(GreetCode, RequestCode, Status);
+impl_send_for_enum!(GreetCode, RequestCode, Status, SaveStatus);
 
 macro_rules! impl_send_for_num {($($Num: ty), +) => {$(
     impl Send for $Num {
@@ -257,8 +257,12 @@ impl Response {
                 Response::BlobList(BlobIds::recv(stream)?),
             (Status::Okay, RequestRef::BlobLoad(..)) =>
                 Response::BlobLoad(Blob::recv(stream)?),
-            (status, RequestRef::BlobSave(..)) =>
-                Response::BlobSave((status, BlobId::recv(stream)?)),
+            (Status::Okay, RequestRef::BlobSave(..)) =>
+                Response::BlobSave((SaveStatus::Created,
+                                    BlobId::recv(stream)?)),
+            (Status::AlreadyExists, RequestRef::BlobSave(..)) =>
+                Response::BlobSave((SaveStatus::AlreadyExists,
+                                    BlobId::recv(stream)?)),
             (status, _) =>
                 Response::Status(status),
         };
@@ -319,7 +323,7 @@ macro_rules! impl_recv_for_enum{($($Enum: ty), +) => {$(
         }
     }
 )+}}
-impl_recv_for_enum!(GreetCode, RequestCode, Status);
+impl_recv_for_enum!(GreetCode, RequestCode, Status, SaveStatus);
 
 macro_rules! impl_recv_for_num{($($Num: ty), +) => {$(
     impl Recv for $Num {

@@ -8,7 +8,7 @@ use std::io::{self, Read, Write, ErrorKind};
 use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err, log_call};
 use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
-                   Status, Result};
+                   Status, Result, SaveStatus};
 
 
 /* Apparently setting option bits is so complicated
@@ -117,19 +117,20 @@ impl Persister {
         })
     }
 
-    pub fn blob_save(&self, store_id: StoreIdRef, blob: & Blob) -> (Status, BlobId) {
-        let Blob(buf) = blob;
-        let save = |mut file: File| {
-            log_err_ret_val!(file.write_all(buf), Status::InternalError);
-            Status::Okay
-        };
-
+    pub fn blob_save(&self, store_id: StoreIdRef, blob: &Blob)
+            -> Result<(SaveStatus, BlobId)> {
         log_call!(self.blob_save(store_id, blob) -> {
-            let blob_id = funcs::blob_hash(buf);
+            let blob_id = funcs::blob_hash(blob.as_ref());
             let result = self.blob_open(store_id, &blob_id, create_exclusive());
             match result {
-                Err(status) => (status, blob_id),
-                Ok(file) => (save(file), blob_id),
+                Ok(mut file) => {
+                    log_ret_err!(file.write_all(blob.as_ref()));
+                    Ok((SaveStatus::Created, blob_id))
+                },
+                Err(Status::AlreadyExists) =>
+                    Ok((SaveStatus::AlreadyExists, blob_id)),
+                Err(error) =>
+                    Err(error),
             }
         })
     }

@@ -40,7 +40,7 @@ pub enum Response {
     BlobHash(BlobId),
     BlobList(BlobIds),
     BlobLoad(Blob),
-    BlobSave((Status, BlobId)),
+    BlobSave((SaveStatus, BlobId)),
 }
 
 #[repr(u64)]
@@ -49,9 +49,16 @@ pub enum Status {
     Okay = code8(b"okaydoke"),
     NotFound = code8(b"notfound"),
     AlreadyExists = code8(b"itexists"),
-    BadArgument = code8(b"badargum"),
+    BadArgument = code8(b"invalarg"),
     NoSpace = code8(b"no-space"),
     InternalError = code8(b"internal"),
+}
+
+#[repr(u64)]
+#[derive(Debug, Copy, Clone, PartialEq, TryFromPrimitive, IntoPrimitive)]
+pub enum SaveStatus {
+    Created = Status::Okay as u64,
+    AlreadyExists = Status::AlreadyExists as u64,
 }
 
 pub type StoreId = Box<str>;

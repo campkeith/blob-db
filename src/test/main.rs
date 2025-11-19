@@ -11,7 +11,7 @@ use clap::Parser;
 
 mod fake;
 use blob_db::funcs;
-use blob_db::types::{StoreId, BlobId, Blob, Status, Result};
+use blob_db::types::{StoreId, BlobId, Blob, Status, SaveStatus, Result};
 use blob_db::client::Client;
 
 
@@ -148,11 +148,6 @@ impl TestRig {
 
     fn test_blob_save(&mut self) -> Result<()> {
         let ((store_id, store_ok), (sel_blob_id, blob_ok)) = self.random_store_blob();
-        let exp_status = match (store_ok, blob_ok) {
-            (false, _) => Status::NotFound,
-            (true, false) => Status::Okay,
-            (true, true) => Status::AlreadyExists,
-        };
         let (exp_blob_id, blob) =
             if blob_ok {
                 let store = self.db.get(&store_id).unwrap();
@@ -163,10 +158,15 @@ impl TestRig {
                 let blob_id = funcs::blob_hash(blob.as_ref());
                 (blob_id, blob)
             };
-        let (status, blob_id) = self.client.blob_save(&store_id, &blob)?;
-        assert_eq!((status, blob_id), (exp_status, exp_blob_id));
+        let exp_result = match (store_ok, blob_ok) {
+            (false, _) => Err(Status::NotFound),
+            (true, false) => Ok((SaveStatus::Created, exp_blob_id)),
+            (true, true) => Ok((SaveStatus::AlreadyExists, exp_blob_id)),
+        };
+        let result = self.client.blob_save(&store_id, &blob);
+        assert_eq!(result, exp_result);
         if store_ok && !blob_ok {
-            self.db.get_mut(&store_id).unwrap().insert(blob_id, blob);
+            self.db.get_mut(&store_id).unwrap().insert(exp_blob_id, blob);
         }
         Ok(())
     }

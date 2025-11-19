@@ -3,7 +3,7 @@ use std::fmt::{self, Debug};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
 use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
-                   RequestRef, Response, Result, Status};
+                   RequestRef, Response, Result, Status, SaveStatus};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
 use crate::debug::format_addr;
 
@@ -115,7 +115,7 @@ impl Client {
 
     pub fn blob_save(&mut self, store_id: impl AsRef<str> + Debug,
                                 blob: impl AsRef<[u8]> + Debug)
-            -> Result<(Status, BlobId)> {
+            -> Result<(SaveStatus, BlobId)> {
         log_call!(self.blob_save(store_id, blob) ->
             send_req_recv_val!(self, BlobSave(store_id.as_ref(), blob.as_ref()))
         )

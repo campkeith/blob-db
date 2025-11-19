@@ -130,8 +130,11 @@ impl Server {
                 })
             },
             Request::BlobSave(store_id, blob) => {
-                let (status, blob_id) = self.inner.blob_save(store_id, &blob);
-                Some(Response::BlobSave((status, blob_id)))
+                let result = self.inner.blob_save(store_id, &blob);
+                Some(match result {
+                    Ok(status_id) => Response::BlobSave(status_id),
+                    Err(status) => Response::Status(status),
+                })
             },
             Request::BlobDelete(store_id, blob_id) => {
                 let status = self.inner.blob_delete(store_id, blob_id);

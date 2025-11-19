@@ -159,7 +159,8 @@ StoreListResponse = {OK, StoreNames} | ErrorStatus
 BlobHashResponse = {OK, Hash} | ErrorStatus
 BlobListResponse = {OK, Hashes} | ErrorStatus
 BlobLoadResponse = {OK, Blob} | ErrorStatus
-BlobSaveResponse = {OK | ALREADY_EXISTS | NO_SPACE, Hash} | INVALID_ARGUMENT
+BlobSaveResponse = {OK | ALREADY_EXISTS, Hash}
+                 | {NO_SPACE | NOT_FOUND | INVALID_ARGUMENT}
 ```
 
 ### Values
