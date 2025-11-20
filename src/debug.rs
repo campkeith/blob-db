@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use std::fmt::{self, Debug, Formatter};
 use std::ascii::escape_default;
 
-use crate::types::{BlobId, Blob};
+use crate::types::{BlobId, Blob, BlobStream};
 use crate::funcs;
 
 
@@ -24,6 +24,12 @@ impl Debug for Blob {
         } else {
             write!(out, "\"{}\"[{}]", format_buf(buf), size)
         }
+    }
+}
+
+impl Debug for BlobStream<'_> {
+    fn fmt(&self, out: &mut Formatter<'_>) -> fmt::Result {
+        write!(out, "BlobStream{{size={}}}", self.bytes_remain)
     }
 }
 

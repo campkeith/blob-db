@@ -1,29 +1,22 @@
 use std::fmt;
-use std::fs::{self, File, OpenOptions, DirEntry};
+use std::fs::{self, File, DirEntry};
 use std::path::Path;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use std::io::{self, Read, Write, ErrorKind};
+use std::io::{self, Read, ErrorKind};
+
+use rand::{self, rngs::ThreadRng, distr::{SampleString, Alphanumeric}};
+use renamore::rename_exclusive;
 
 use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err, log_call};
-use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
-                   Status, Result, SaveStatus};
+use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds,
+                   Blob, BlobStream, Status, Result, SaveStatus};
 
-
-/* Apparently setting option bits is so complicated
-   that it requires a dedicated factory system...
-*/
-fn read_only() -> OpenOptions {
-    File::options().read(true).clone()
-}
-
-fn create_exclusive() -> OpenOptions {
-    File::options().write(true).create_new(true).clone()
-}
 
 pub struct Persister {
     base_dir: Box<Path>,
+    rng: ThreadRng,
 }
 
 impl fmt::Debug for Persister {
@@ -44,6 +37,7 @@ impl Persister {
         }
         Ok(Persister{
             base_dir: base_dir.into(),
+            rng: rand::rng(),
         })
     }
 
@@ -60,7 +54,7 @@ impl Persister {
         }
 
         log_call!(self.store_list() -> {
-            let dir_iter = log_ret_err!(fs::read_dir(&self.base_dir));
+            let dir_iter = log_ret_err!(fs::read_dir(&self.stores_path()));
             dir_iter.map(entry_to_name).collect()
         })
     }
@@ -98,7 +92,7 @@ impl Persister {
 
     pub fn blob_info(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Status {
         log_call!(self.blob_info(store_id, blob_id) -> {
-            match self.blob_open(store_id, blob_id, read_only()) {
+            match self.blob_open(store_id, blob_id) {
                 Err(status) => status,
                 Ok(_) => Status::Okay,
             }
@@ -107,7 +101,7 @@ impl Persister {
 
     pub fn blob_load(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Result<Blob> {
         log_call!(self.blob_load(store_id, blob_id) -> {
-            let mut file = self.blob_open(store_id, blob_id, read_only())?;
+            let mut file = self.blob_open(store_id, blob_id)?;
             let metadata = log_ret_err!(file.metadata());
             let size = log_ret_err!(usize::try_from(metadata.len()));
             let buf_uninit = Box::new_uninit_slice(size);
@@ -117,20 +111,23 @@ impl Persister {
         })
     }
 
-    pub fn blob_save(&self, store_id: StoreIdRef, blob: &Blob)
+    pub fn blob_save(&mut self, store_id: StoreIdRef, blob: &mut BlobStream)
             -> Result<(SaveStatus, BlobId)> {
         log_call!(self.blob_save(store_id, blob) -> {
-            let blob_id = funcs::blob_hash(blob.as_ref());
-            let result = self.blob_open(store_id, &blob_id, create_exclusive());
+            let mut tmp_file = TmpFile::create(self.tmp_blob_path())?;
+            let blob_id = funcs::copy_hash(blob, &mut tmp_file.file)?;
+            let dst_path = self.blob_path(store_id, &blob_id);
+            let result = rename_exclusive(&tmp_file.path, dst_path);
             match result {
-                Ok(mut file) => {
-                    log_ret_err!(file.write_all(blob.as_ref()));
-                    Ok((SaveStatus::Created, blob_id))
-                },
-                Err(Status::AlreadyExists) =>
-                    Ok((SaveStatus::AlreadyExists, blob_id)),
-                Err(error) =>
-                    Err(error),
+                Ok(()) => Ok((SaveStatus::Created, blob_id)),
+                Err(error) => match error.kind() {
+                    ErrorKind::NotFound =>
+                        Err(Status::NotFound),
+                    ErrorKind::AlreadyExists =>
+                        Ok((SaveStatus::AlreadyExists, blob_id)),
+                    _ =>
+                        log_ret_err!(Err(error)),
+                }
             }
         })
     }
@@ -144,10 +141,9 @@ impl Persister {
         })
     }
 
-
-    fn blob_open(&self, store_id: StoreIdRef, blob_id: BlobIdRef, options: OpenOptions)
+    fn blob_open(&self, store_id: StoreIdRef, blob_id: BlobIdRef)
             -> Result<File> {
-        let result = options.open(self.blob_path(store_id, blob_id));
+        let result = File::open(self.blob_path(store_id, blob_id));
         result.or_else(|error| match error.kind() {
             ErrorKind::NotFound => Err(Status::NotFound),
             ErrorKind::AlreadyExists => Err(Status::AlreadyExists),
@@ -158,13 +154,42 @@ impl Persister {
         })
     }
 
+    fn tmp_blob_path(&mut self) -> Box<Path> {
+        const SIZE: usize = 16;
+        let name = Alphanumeric.sample_string(&mut self.rng, SIZE);
+        self.base_dir.join("tmp").join(name).into()
+    }
+
+    fn stores_path(&self) -> Box<Path> {
+        self.base_dir.join("stores").into()
+    }
+
     fn store_path(&self, store_id: StoreIdRef) -> Box<Path> {
-        self.base_dir.join(store_id).into()
+        self.stores_path().join(store_id).into()
     }
 
     fn blob_path(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Box<Path> {
         let blob_id_str = funcs::hash_to_str(blob_id);
         let file_name = OsStr::from_bytes(&blob_id_str);
         self.store_path(store_id).join(file_name).into()
+    }
+}
+
+
+struct TmpFile {
+    file: File,
+    path: Box<Path>,
+}
+
+impl TmpFile {
+    fn create(path: Box<Path>) -> Result<Self> {
+        let file = log_ret_err!(fs::File::create(&path));
+        Ok(Self{file, path})
+    }
+}
+
+impl Drop for TmpFile {
+    fn drop(&mut self) {
+        _ = fs::remove_file(&self.path);
     }
 }

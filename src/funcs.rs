@@ -1,6 +1,8 @@
 use std::mem;
 use std::env;
+use std::cmp::min;
 use std::ffi::OsStr;
+use std::io::{Read, Write, ErrorKind};
 
 use sha2::{Sha256, Digest};
 
@@ -22,6 +24,26 @@ pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
 
 pub fn blob_hash(blob: BlobRef) -> BlobId {
     BlobId(Sha256::digest(blob).into())
+}
+
+pub fn copy_hash(input: &mut impl Read, output: &mut impl Write)
+        -> Result<BlobId> {
+    const BUF_SIZE: usize = 64 * 1024;
+    let mut buf = unsafe {Box::new_uninit_slice(BUF_SIZE).assume_init()};
+    let mut hasher = Sha256::new();
+    loop {
+        let chunk = match input.read(&mut buf) {
+            Ok(0) => break,
+            Ok(size) => &buf[..min(size, buf.len())],
+            Err(error) => match error.kind() {
+                ErrorKind::Interrupted => continue,
+                _ => log_ret_err!(Err(error)),
+            }
+        };
+        log_ret_err!(output.write_all(chunk));
+        hasher.update(chunk);
+    }
+    Ok(BlobId(hasher.finalize().into()))
 }
 
 pub const fn code8(bytes: & [u8; 8]) -> u64 {

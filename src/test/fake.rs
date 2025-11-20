@@ -8,7 +8,7 @@ use blob_db::types::{StoreId, BlobId, Blob};
 
 pub fn store_id(rng: &mut impl Rng, max_size: usize) -> StoreId {
     let size = size_geometric(rng, max_size);
-    Alphanumeric.sample_string(&mut rand::rng(), size).into()
+    Alphanumeric.sample_string(rng, size).into()
 }
 
 pub fn blob_id(rng: &mut impl Rng) -> BlobId {

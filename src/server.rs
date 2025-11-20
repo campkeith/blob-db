@@ -1,12 +1,12 @@
+use std::io;
 use std::fmt;
 use std::net::{TcpListener, TcpStream};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
 use crate::funcs;
 use crate::persister::Persister;
-use crate::types::{Request, Response, Result, Status, Blob};
-use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome,
-                       Send, Recv};
+use crate::types::{Request, Response, Result, Status};
+use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome, Send};
 
 pub struct Server {
     inner: Persister,
@@ -30,7 +30,7 @@ impl Server {
         Ok(server)
     }
 
-    pub fn go(&self) -> Result<()> {
+    pub fn go(&mut self) -> Result<()> {
         let listener = log_ret_err!(TcpListener::bind(self.address.as_ref()));
         for stream_result in listener.incoming() {
             match stream_result {
@@ -46,7 +46,7 @@ impl Server {
         Ok(())
     }
 
-    fn client_session(&self, stream: &mut TcpStream) {
+    fn client_session(&mut self, stream: &mut TcpStream) {
         let peer_str = format_peer_addr(stream);
         println!("Client {peer_str} connected.");
         let result = self.handle_stream(stream);
@@ -58,7 +58,7 @@ impl Server {
         }
     }
 
-    fn handle_stream(&self, stream: &mut TcpStream) -> Result<()> {
+    fn handle_stream(&mut self, stream: &mut TcpStream) -> Result<()> {
         self.shake_hands(stream)?;
         let mut run = true;
         while run {
@@ -76,11 +76,13 @@ impl Server {
         }
     }
 
-    fn handle_request(&self, stream: &mut TcpStream) -> Result<bool> {
-        let request = Request::recv(stream)?;
-        let opt_response = log_call!(self.process_request(request) ->
-            self.process_request(&request)
-        );
+    fn handle_request(&mut self, stream: &mut TcpStream) -> Result<bool> {
+        let opt_response = {
+            let mut request = Request::recv(stream)?;
+            log_call!(self.process_request(request) ->
+                self.process_request(&mut request)
+            )
+        };
         match opt_response {
             Some(response) => {
                 response.send(stream)?;
@@ -90,7 +92,7 @@ impl Server {
         }
     }
 
-    fn process_request<'a>(&self, request: &Request) -> Option<Response> {
+    fn process_request<'a>(&mut self, request: &mut Request) -> Option<Response> {
         match request {
             Request::StoreList() => {
                 let result = self.inner.store_list();
@@ -107,9 +109,12 @@ impl Server {
                 let status = self.inner.store_destroy(store_id);
                 Some(Response::Status(status))
             },
-            Request::BlobHash(Blob(blob)) => {
-                let blob_id = funcs::blob_hash(&blob);
-                Some(Response::BlobHash(blob_id))
+            Request::BlobHash(blob_stream) => {
+                let result = funcs::copy_hash(blob_stream, &mut io::sink());
+                Some(match result {
+                    Ok(blob_id) => Response::BlobHash(blob_id),
+                    Err(status) => Response::Status(status),
+                })
             },
             Request::BlobList(store_id) => {
                 let result = self.inner.blob_list(store_id);
@@ -130,7 +135,7 @@ impl Server {
                 })
             },
             Request::BlobSave(store_id, blob) => {
-                let result = self.inner.blob_save(store_id, &blob);
+                let result = self.inner.blob_save(store_id, blob);
                 Some(match result {
                     Ok(status_id) => Response::BlobSave(status_id),
                     Err(status) => Response::Status(status),

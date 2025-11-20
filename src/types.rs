@@ -1,20 +1,22 @@
 use std::result;
+use std::io::Read;
+use std::fmt::Debug;
 
 use crate::funcs::code8;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 
 #[derive(Debug)]
-pub enum Request {
+pub enum Request<'a> {
     StoreList(),
     StoreCreate(StoreId),
     StoreDestroy(StoreId),
-    BlobHash(Blob),
+    BlobHash(BlobStream<'a>),
 
     BlobList(StoreId),
     BlobInfo(StoreId, BlobId),
     BlobLoad(StoreId, BlobId),
-    BlobSave(StoreId, Blob),
+    BlobSave(StoreId, BlobStream<'a>),
     BlobDelete(StoreId, BlobId),
     Bye,
 }
@@ -63,7 +65,7 @@ pub enum SaveStatus {
 
 pub type StoreId = Box<str>;
 pub type StoreIds = Box<[StoreId]>;
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Default)]
 pub struct BlobId(pub [u8; 32]);
 pub type BlobIdStr = [u8; 64];
 pub type BlobIds = Box<[BlobId]>;
@@ -75,6 +77,12 @@ pub type StoreIdsRef<'a> = &'a [StoreId];
 pub type BlobIdRef<'a> = &'a BlobId;
 pub type BlobIdsRef<'a> = &'a [BlobId];
 pub type BlobRef<'a> = &'a [u8];
+
+pub struct BlobStream<'a> {
+    pub bytes_remain: usize,
+    pub stream: &'a mut dyn Read,
+}
+
 
 pub type Code = u64;
 pub type Result<Val> = result::Result<Val, Status>;
