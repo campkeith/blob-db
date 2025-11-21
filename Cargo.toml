@@ -9,7 +9,8 @@ path = "src/test/main.rs"
 
 [dependencies]
 num_enum = "0.7.5"
+rand = "0.9.2"
 sha2 = "0.10.9"
+memmap2 = "0.9.9"
 renamore = "0.3.2"
 clap = {version = "4.5.51", features = ["derive"]}
-rand = "0.9.2"

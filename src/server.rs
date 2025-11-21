@@ -1,4 +1,3 @@
-use std::io;
 use std::fmt;
 use std::net::{TcpListener, TcpStream};
 
@@ -110,7 +109,7 @@ impl Server {
                 Some(Response::Status(status))
             },
             Request::BlobHash(blob_stream) => {
-                let result = funcs::copy_hash(blob_stream, &mut io::sink());
+                let result = funcs::hash(blob_stream, blob_stream.bytes_remain);
                 Some(match result {
                     Ok(blob_id) => Response::BlobHash(blob_id),
                     Err(status) => Response::Status(status),

@@ -2,12 +2,15 @@ use std::mem;
 use std::env;
 use std::cmp::min;
 use std::ffi::OsStr;
-use std::io::{Read, Write, ErrorKind};
+use std::io::Read;
 
 use sha2::{Sha256, Digest};
 
 use crate::types::{BlobId, BlobIdStr, BlobIdRef, BlobRef, Status, Result};
 use crate::{log_err, log_ret_err, log_err_ret_val};
+
+
+const CHUNK_SIZE: usize = 64 * 1024;
 
 
 pub fn env(name_in: impl AsRef<OsStr>) -> Result<Box<str>> {
@@ -26,21 +29,23 @@ pub fn blob_hash(blob: BlobRef) -> BlobId {
     BlobId(Sha256::digest(blob).into())
 }
 
-pub fn copy_hash(input: &mut impl Read, output: &mut impl Write)
+pub fn hash_copy(input: &mut impl Read, output: &mut [u8])
         -> Result<BlobId> {
-    const BUF_SIZE: usize = 64 * 1024;
-    let mut buf = unsafe {Box::new_uninit_slice(BUF_SIZE).assume_init()};
     let mut hasher = Sha256::new();
-    loop {
-        let chunk = match input.read(&mut buf) {
-            Ok(0) => break,
-            Ok(size) => &buf[..min(size, buf.len())],
-            Err(error) => match error.kind() {
-                ErrorKind::Interrupted => continue,
-                _ => log_ret_err!(Err(error)),
-            }
-        };
-        log_ret_err!(output.write_all(chunk));
+    for chunk in output.chunks_mut(CHUNK_SIZE) {
+        log_ret_err!(input.read_exact(chunk));
+        hasher.update(chunk);
+    }
+    Ok(BlobId(hasher.finalize().into()))
+}
+
+pub fn hash(input: &mut impl Read, size: usize) -> Result<BlobId> {
+    let mut buf = unsafe {Box::new_uninit_slice(CHUNK_SIZE).assume_init()};
+    let mut hasher = Sha256::new();
+    for index in (0..size).step_by(CHUNK_SIZE) {
+        let chunk_size = min(size - index, CHUNK_SIZE);
+        let chunk = &mut buf[..chunk_size];
+        log_ret_err!(input.read_exact(chunk));
         hasher.update(chunk);
     }
     Ok(BlobId(hasher.finalize().into()))

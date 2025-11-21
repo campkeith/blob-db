@@ -1,11 +1,12 @@
 use std::fmt;
-use std::fs::{self, File, DirEntry};
+use std::fs::{self, OpenOptions, File, DirEntry};
 use std::path::Path;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::io::{self, Read, ErrorKind};
 
 use rand::{self, rngs::ThreadRng, distr::{SampleString, Alphanumeric}};
+use memmap2::MmapMut;
 use renamore::rename_exclusive;
 
 use crate::funcs;
@@ -114,8 +115,12 @@ impl Persister {
     pub fn blob_save(&mut self, store_id: StoreIdRef, blob: &mut BlobStream)
             -> Result<(SaveStatus, BlobId)> {
         log_call!(self.blob_save(store_id, blob) -> {
-            let mut tmp_file = TmpFile::create(self.tmp_blob_path())?;
-            let blob_id = funcs::copy_hash(blob, &mut tmp_file.file)?;
+            let tmp_file = TmpFile::create(self.tmp_blob_path(),
+                                           blob.bytes_remain)?;
+            let mut buf = log_ret_err!(unsafe {
+                MmapMut::map_mut(&tmp_file.file)
+            });
+            let blob_id = funcs::hash_copy(blob, &mut *buf)?;
             let dst_path = self.blob_path(store_id, &blob_id);
             let result = rename_exclusive(&tmp_file.path, dst_path);
             match result {
@@ -182,8 +187,10 @@ struct TmpFile {
 }
 
 impl TmpFile {
-    fn create(path: Box<Path>) -> Result<Self> {
-        let file = log_ret_err!(fs::File::create(&path));
+    fn create(path: Box<Path>, size: usize) -> Result<Self> {
+        let file = log_ret_err!(o_rw_excl().open(&path));
+        let size_u64 = log_ret_err!(u64::try_from(size));
+        log_ret_err!(file.set_len(size_u64));
         Ok(Self{file, path})
     }
 }
@@ -192,4 +199,8 @@ impl Drop for TmpFile {
     fn drop(&mut self) {
         _ = fs::remove_file(&self.path);
     }
+}
+
+fn o_rw_excl() -> OpenOptions {
+    fs::OpenOptions::new().read(true).write(true).create_new(true).clone()
 }
