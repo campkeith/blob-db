@@ -2,20 +2,20 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::fmt::{self, Debug};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
-use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, Blob,
-                   RequestRef, Response, Result, Status, SaveStatus};
+use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, BlobStream,
+                   RequestOut, ResponseIn, Result, Status, SaveStatus};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
 use crate::debug::format_addr;
 
 
 macro_rules!
 send_req_recv_val{($self: ident, $req_type: ident($($req_arg: expr), *)) => {{
-    let request = RequestRef::$req_type($($req_arg,)*);
+    let request = RequestOut::$req_type($($req_arg,)*);
     request.send(&mut $self.stream)?;
-    let response = Response::recv(&mut $self.stream, request)?;
+    let response = ResponseIn::recv(&mut $self.stream, request)?;
     match response {
-        Response::$req_type(val) => Ok(val),
-        Response::Status(status) => Err(status),
+        ResponseIn::$req_type(val) => Ok(val),
+        ResponseIn::Status(status) => Err(status),
         _ => {
             let (file, line) = (file!(), line!());
             eprintln!("{file}:{line}: Unexpected response: {response:?}");
@@ -40,7 +40,7 @@ impl Debug for Client {
 impl Drop for Client {
     fn drop(&mut self) {
         log_call!(self.drop() ->
-            if let Err(status) = RequestRef::Bye.send(&mut self.stream) {
+            if let Err(status) = RequestOut::Bye.send(&mut self.stream) {
                 eprintln!("Client::drop: failed to send Bye: {status:?}");
             }
         )
@@ -71,14 +71,14 @@ impl Client {
     pub fn store_create(&mut self, store_id: impl AsRef<str> + Debug)
             -> Result<()> {
         log_call!(self.store_create(store_id) ->
-            self.op_status_resp(RequestRef::StoreCreate(store_id.as_ref()))
+            self.op_status_resp(RequestOut::StoreCreate(store_id.as_ref()))
         )
     }
 
     pub fn store_destroy(&mut self, store_id: impl AsRef<str> + Debug)
             -> Result<()> {
         log_call!(self.store_destroy(store_id) ->
-            self.op_status_resp(RequestRef::StoreDestroy(store_id.as_ref()))
+            self.op_status_resp(RequestOut::StoreDestroy(store_id.as_ref()))
         )
     }
 
@@ -100,17 +100,19 @@ impl Client {
                                 blob_id: BlobIdRef)
             -> Result<()> {
         log_call!(self.blob_info(store_id, blob_id) -> {
-            let request = RequestRef::BlobInfo(store_id.as_ref(), blob_id);
+            let request = RequestOut::BlobInfo(store_id.as_ref(), blob_id);
             self.op_status_resp(request)
         })
     }
 
-    pub fn blob_load(&mut self, store_id: impl AsRef<str> + Debug,
+    pub fn blob_load<'a>(&'a mut self, store_id: impl AsRef<str> + Debug,
                                 blob_id: BlobIdRef)
-            -> Result<Blob> {
-        log_call!(self.blob_load(store_id, blob_id) ->
-            send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id))
-        )
+            -> Result<BlobStream<'a>> {
+        let base = format!("{self:?}.blob_load");
+        println!("{base}(store_id={store_id:?}, blob_id={blob_id:?}):");
+        let result = send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id));
+        println!("{base} -> {result:?}");
+        result
     }
 
     pub fn blob_save(&mut self, store_id: impl AsRef<str> + Debug,
@@ -125,16 +127,16 @@ impl Client {
                                   blob_id: BlobIdRef)
             -> Result<()> {
         log_call!(self.blob_delete(store_id, blob_id) -> {
-            let request = RequestRef::BlobDelete(store_id.as_ref(), blob_id);
+            let request = RequestOut::BlobDelete(store_id.as_ref(), blob_id);
             self.op_status_resp(request)
         })
     }
 
-    fn op_status_resp(&mut self, request: RequestRef) -> Result<()> {
+    fn op_status_resp(&mut self, request: RequestOut) -> Result<()> {
         request.send(&mut self.stream)?;
-        let response = Response::recv(&mut self.stream, request)?;
+        let response = ResponseIn::recv(&mut self.stream, request)?;
         match response {
-            Response::Status(status) => match status {
+            ResponseIn::Status(status) => match status {
                 Status::Okay => Ok(()),
                 _ => Err(status),
             },

@@ -1,8 +1,7 @@
 use std::mem;
 use std::env;
-use std::cmp::min;
 use std::ffi::OsStr;
-use std::io::Read;
+use std::io::{Read, BufRead, BufReader};
 
 use sha2::{Sha256, Digest};
 
@@ -39,14 +38,14 @@ pub fn hash_copy(input: &mut impl Read, output: &mut [u8])
     Ok(BlobId(hasher.finalize().into()))
 }
 
-pub fn hash(input: &mut impl Read, size: usize) -> Result<BlobId> {
-    let mut buf = unsafe {Box::new_uninit_slice(CHUNK_SIZE).assume_init()};
+pub fn hash(input: &mut impl Read) -> Result<BlobId> {
+    let mut reader = BufReader::with_capacity(CHUNK_SIZE, input);
     let mut hasher = Sha256::new();
-    for index in (0..size).step_by(CHUNK_SIZE) {
-        let chunk_size = min(size - index, CHUNK_SIZE);
-        let chunk = &mut buf[..chunk_size];
-        log_ret_err!(input.read_exact(chunk));
+    while log_ret_err!(reader.has_data_left()) {
+        let chunk = log_ret_err!(reader.fill_buf());
         hasher.update(chunk);
+        let chunk_size = chunk.len();
+        reader.consume(chunk_size);
     }
     Ok(BlobId(hasher.finalize().into()))
 }

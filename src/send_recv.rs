@@ -2,14 +2,16 @@ use std::iter;
 use std::cmp::min;
 use std::io::{self, Read, Write};
 
+use memmap2::Mmap;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
 use crate::funcs::code8;
 use crate::{log_ret_err, log_err_ret_val, log_err};
 use crate::types::{
-    Request, RequestRef, Response, Status, SaveStatus, Result, Code,
-    StoreId, StoreIds, BlobId, BlobIds, Blob, BlobStream,
-    StoreIdRef, BlobIdsRef, BlobRef,
+    RequestIn, RequestOut, ResponseIn, ResponseOut,
+    Status, SaveStatus, Result, Code,
+    StoreId, StoreIds, BlobId, BlobIds, BlobStream, BlobFile,
+    StoreIdRef, BlobRef,
 };
 
 
@@ -64,48 +66,48 @@ pub fn send_not_welcome(stream: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-impl Send for RequestRef<'_> {
+impl Send for RequestOut<'_> {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
         match self {
-            RequestRef::StoreList() =>
+            RequestOut::StoreList() =>
                 send!(stream, RequestCode::StoreList),
-            RequestRef::StoreCreate(store_id) =>
+            RequestOut::StoreCreate(store_id) =>
                 send!(stream, RequestCode::StoreCreate, store_id),
-            RequestRef::StoreDestroy(store_id) =>
+            RequestOut::StoreDestroy(store_id) =>
                 send!(stream, RequestCode::StoreDestroy, store_id),
-            RequestRef::BlobHash(blob) =>
+            RequestOut::BlobHash(blob) =>
                 send!(stream, RequestCode::BlobHash, blob),
-            RequestRef::BlobList(store_id) =>
+            RequestOut::BlobList(store_id) =>
                 send!(stream, RequestCode::BlobList, store_id),
-            RequestRef::BlobInfo(store_id, blob_id) =>
+            RequestOut::BlobInfo(store_id, blob_id) =>
                 send!(stream, RequestCode::BlobInfo, store_id, blob_id),
-            RequestRef::BlobLoad(store_id, blob_id) =>
+            RequestOut::BlobLoad(store_id, blob_id) =>
                 send!(stream, RequestCode::BlobLoad, store_id, blob_id),
-            RequestRef::BlobSave(store_id, blob) =>
+            RequestOut::BlobSave(store_id, blob) =>
                 send!(stream, RequestCode::BlobSave, store_id, blob),
-            RequestRef::BlobDelete(store_id, blob_id) =>
+            RequestOut::BlobDelete(store_id, blob_id) =>
                 send!(stream, RequestCode::BlobDelete, store_id, blob_id),
-            RequestRef::Bye =>
+            RequestOut::Bye =>
                 send!(stream, RequestCode::Bye),
         }
         Ok(())
     }
 }
 
-impl Send for Response {
+impl Send for ResponseOut {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
         match self {
-            Response::Status(status) =>
+            ResponseOut::Status(status) =>
                 send!(stream, status),
-            Response::StoreList(store_ids) =>
+            ResponseOut::StoreList(store_ids) =>
                 send!(stream, Status::Okay, store_ids),
-            Response::BlobHash(blob_id) =>
+            ResponseOut::BlobHash(blob_id) =>
                 send!(stream, Status::Okay, blob_id),
-            Response::BlobList(blob_ids) =>
-                send!(stream, Status::Okay, blob_ids.as_ref()),
-            Response::BlobLoad(blob) =>
+            ResponseOut::BlobList(blob_ids) =>
+                send!(stream, Status::Okay, blob_ids),
+            ResponseOut::BlobLoad(blob) =>
                 send!(stream, Status::Okay, blob),
-            Response::BlobSave((status, blob_id)) =>
+            ResponseOut::BlobSave((status, blob_id)) =>
                 send!(stream, status, blob_id),
         }
         Ok(())
@@ -139,7 +141,7 @@ impl Send for BlobId {
     }
 }
 
-impl Send for BlobIdsRef<'_> {
+impl Send for BlobIds {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
         let size = log_ret_err!(u64::try_from(self.len()));
         let buffer: Box<[u8]> = self.iter().map(|& BlobId(id)| id)
@@ -149,10 +151,10 @@ impl Send for BlobIdsRef<'_> {
     }
 }
 
-impl Send for Blob {
+impl Send for BlobFile {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
-        let Blob(buf) = self;
-        buf.as_ref().send(stream)
+        let buf = &*log_ret_err!(unsafe{Mmap::map(self)});
+        buf.send(stream)
     }
 }
 
@@ -214,58 +216,60 @@ pub fn recv_welcome(stream: &mut impl Read) -> Result<()> {
     }
 }
 
-impl<'a> Request<'a> {
+impl<'a> RequestIn<'a> {
     pub fn recv(stream: &'a mut impl Read) -> Result<Self> {
-        let code: RequestCode = RequestCode::recv(stream)?;
-        let request: Request = match code {
+        let code = RequestCode::recv(stream)?;
+        let request = match code {
             RequestCode::StoreList =>
-                Request::StoreList(),
+                RequestIn::StoreList(),
             RequestCode::StoreCreate =>
-                Request::StoreCreate(StoreId::recv(stream)?),
+                RequestIn::StoreCreate(StoreId::recv(stream)?),
             RequestCode::StoreDestroy =>
-                Request::StoreDestroy(StoreId::recv(stream)?),
+                RequestIn::StoreDestroy(StoreId::recv(stream)?),
             RequestCode::BlobHash =>
-                Request::BlobHash(blob_stream_recv(stream)?),
+                RequestIn::BlobHash(BlobStream::recv(stream)?),
             RequestCode::BlobList =>
-                Request::BlobList(StoreId::recv(stream)?),
+                RequestIn::BlobList(StoreId::recv(stream)?),
             RequestCode::BlobInfo =>
-                Request::BlobInfo(StoreId::recv(stream)?, BlobId::recv(stream)?),
+                RequestIn::BlobInfo(StoreId::recv(stream)?,
+                                    BlobId::recv(stream)?),
             RequestCode::BlobLoad =>
-                Request::BlobLoad(StoreId::recv(stream)?, BlobId::recv(stream)?),
+                RequestIn::BlobLoad(StoreId::recv(stream)?,
+                                    BlobId::recv(stream)?),
             RequestCode::BlobSave =>
-                Request::BlobSave(StoreId::recv(stream)?, blob_stream_recv(stream)?),
+                RequestIn::BlobSave(StoreId::recv(stream)?,
+                                    BlobStream::recv(stream)?),
             RequestCode::BlobDelete =>
-                Request::BlobDelete(StoreId::recv(stream)?, BlobId::recv(stream)?),
+                RequestIn::BlobDelete(StoreId::recv(stream)?,
+                                      BlobId::recv(stream)?),
             RequestCode::Bye =>
-                Request::Bye,
+                RequestIn::Bye,
         };
         Ok(request)
     }
 }
 
-impl Response {
-    pub fn recv(stream: &mut impl Read, request_context: RequestRef)
+impl<'a> ResponseIn<'a> {
+    pub fn recv(stream: &'a mut impl Read, request_context: RequestOut)
             -> Result<Self> {
-        let status: Status = Status::recv(stream)?;
-        let response: Response = match (status, request_context) {
-            (Status::BadArgument, _) =>
-                Response::Status(Status::BadArgument),
-            (Status::Okay, RequestRef::StoreList(..)) =>
-                Response::StoreList(StoreIds::recv(stream)?),
-            (Status::Okay, RequestRef::BlobHash(..)) =>
-                Response::BlobHash(BlobId::recv(stream)?),
-            (Status::Okay, RequestRef::BlobList(..)) =>
-                Response::BlobList(BlobIds::recv(stream)?),
-            (Status::Okay, RequestRef::BlobLoad(..)) =>
-                Response::BlobLoad(Blob::recv(stream)?),
-            (Status::Okay, RequestRef::BlobSave(..)) =>
-                Response::BlobSave((SaveStatus::Created,
-                                    BlobId::recv(stream)?)),
-            (Status::AlreadyExists, RequestRef::BlobSave(..)) =>
-                Response::BlobSave((SaveStatus::AlreadyExists,
-                                    BlobId::recv(stream)?)),
+        let status = Status::recv(stream)?;
+        let response = match (status, request_context) {
+            (Status::Okay, RequestOut::StoreList(..)) =>
+                ResponseIn::StoreList(StoreIds::recv(stream)?),
+            (Status::Okay, RequestOut::BlobHash(..)) =>
+                ResponseIn::BlobHash(BlobId::recv(stream)?),
+            (Status::Okay, RequestOut::BlobList(..)) =>
+                ResponseIn::BlobList(BlobIds::recv(stream)?),
+            (Status::Okay, RequestOut::BlobLoad(..)) =>
+                ResponseIn::BlobLoad(BlobStream::recv(stream)?),
+            (Status::Okay, RequestOut::BlobSave(..)) =>
+                ResponseIn::BlobSave((SaveStatus::Created,
+                                      BlobId::recv(stream)?)),
+            (Status::AlreadyExists, RequestOut::BlobSave(..)) =>
+                ResponseIn::BlobSave((SaveStatus::AlreadyExists,
+                                       BlobId::recv(stream)?)),
             (status, _) =>
-                Response::Status(status),
+                ResponseIn::Status(status),
         };
         Ok(response)
     }
@@ -306,22 +310,21 @@ impl Recv for BlobIds {
     }
 }
 
-impl Recv for Blob {
-    fn recv(stream: &mut impl Read) -> Result<Self> {
+impl<'a> BlobStream<'a> {
+    fn recv(stream: &'a mut impl Read) -> Result<Self> {
         let size_u64 = u64::recv(stream)?;
         let size = log_ret_err!(usize::try_from(size_u64));
-        let buf = bytes_recv(stream, size)?;
-        Ok(Blob(buf))
+        Ok(Self {
+            bytes_remain: size,
+            stream: stream,
+        })
     }
-}
 
-fn blob_stream_recv<'a>(stream: &'a mut impl Read) -> Result<BlobStream<'a>> {
-    let size_u64 = u64::recv(stream)?;
-    let size = log_ret_err!(usize::try_from(size_u64));
-    Ok(BlobStream{
-        bytes_remain: size,
-        stream: stream,
-    })
+    pub fn slurp(&mut self) -> Result<Box<[u8]>> {
+        let buf = bytes_recv(&mut self.stream, self.bytes_remain)?;
+        self.bytes_remain = 0;
+        Ok(buf)
+    }
 }
 
 impl<'a> Read for BlobStream<'a> {

@@ -3,7 +3,7 @@ use std::fs::{self, OpenOptions, File, DirEntry};
 use std::path::Path;
 use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
-use std::io::{self, Read, ErrorKind};
+use std::io::{self, ErrorKind};
 
 use rand::{self, rngs::ThreadRng, distr::{SampleString, Alphanumeric}};
 use memmap2::MmapMut;
@@ -12,7 +12,7 @@ use renamore::rename_exclusive;
 use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err, log_call};
 use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds,
-                   Blob, BlobStream, Status, Result, SaveStatus};
+                   BlobFile, BlobStream, Status, Result, SaveStatus};
 
 
 pub struct Persister {
@@ -100,15 +100,10 @@ impl Persister {
         })
     }
 
-    pub fn blob_load(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Result<Blob> {
+    pub fn blob_load(&self, store_id: StoreIdRef, blob_id: BlobIdRef)
+            -> Result<BlobFile> {
         log_call!(self.blob_load(store_id, blob_id) -> {
-            let mut file = self.blob_open(store_id, blob_id)?;
-            let metadata = log_ret_err!(file.metadata());
-            let size = log_ret_err!(usize::try_from(metadata.len()));
-            let buf_uninit = Box::new_uninit_slice(size);
-            let mut buffer = unsafe {buf_uninit.assume_init()};
-            log_ret_err!(file.read_exact(&mut buffer));
-            Ok(Blob(buffer))
+            self.blob_open(store_id, blob_id)
         })
     }
 

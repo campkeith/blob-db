@@ -1,5 +1,6 @@
-#![feature(iter_array_chunks)]
 #![feature(array_try_map)]
+#![feature(iter_array_chunks)]
+#![feature(buf_read_has_data_left)]
 
 mod macros;
 

@@ -4,7 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
 use crate::funcs;
 use crate::persister::Persister;
-use crate::types::{Request, Response, Result, Status};
+use crate::types::{RequestIn, ResponseOut, Result, Status};
 use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome, Send};
 
 pub struct Server {
@@ -77,7 +77,7 @@ impl Server {
 
     fn handle_request(&mut self, stream: &mut TcpStream) -> Result<bool> {
         let opt_response = {
-            let mut request = Request::recv(stream)?;
+            let mut request = RequestIn::recv(stream)?;
             log_call!(self.process_request(request) ->
                 self.process_request(&mut request)
             )
@@ -91,60 +91,61 @@ impl Server {
         }
     }
 
-    fn process_request<'a>(&mut self, request: &mut Request) -> Option<Response> {
+    fn process_request<'a>(&mut self, request: &mut RequestIn)
+            -> Option<ResponseOut> {
         match request {
-            Request::StoreList() => {
+            RequestIn::StoreList() => {
                 let result = self.inner.store_list();
                 Some(match result {
-                    Ok(list) => Response::StoreList(list),
-                    Err(status) => Response::Status(status),
+                    Ok(list) => ResponseOut::StoreList(list),
+                    Err(status) => ResponseOut::Status(status),
                 })
             },
-            Request::StoreCreate(store_id) => {
+            RequestIn::StoreCreate(store_id) => {
                 let status = self.inner.store_create(store_id);
-                Some(Response::Status(status))
+                Some(ResponseOut::Status(status))
             },
-            Request::StoreDestroy(store_id) => {
+            RequestIn::StoreDestroy(store_id) => {
                 let status = self.inner.store_destroy(store_id);
-                Some(Response::Status(status))
+                Some(ResponseOut::Status(status))
             },
-            Request::BlobHash(blob_stream) => {
-                let result = funcs::hash(blob_stream, blob_stream.bytes_remain);
+            RequestIn::BlobHash(blob_stream) => {
+                let result = funcs::hash(blob_stream);
                 Some(match result {
-                    Ok(blob_id) => Response::BlobHash(blob_id),
-                    Err(status) => Response::Status(status),
+                    Ok(blob_id) => ResponseOut::BlobHash(blob_id),
+                    Err(status) => ResponseOut::Status(status),
                 })
             },
-            Request::BlobList(store_id) => {
+            RequestIn::BlobList(store_id) => {
                 let result = self.inner.blob_list(store_id);
                 Some(match result {
-                    Ok(list) => Response::BlobList(list),
-                    Err(status) => Response::Status(status),
+                    Ok(list) => ResponseOut::BlobList(list),
+                    Err(status) => ResponseOut::Status(status),
                 })
             },
-            Request::BlobInfo(store_id, blob_id) => {
+            RequestIn::BlobInfo(store_id, blob_id) => {
                 let status = self.inner.blob_info(store_id, blob_id);
-                Some(Response::Status(status))
+                Some(ResponseOut::Status(status))
             },
-            Request::BlobLoad(store_id, blob_id) => {
+            RequestIn::BlobLoad(store_id, blob_id) => {
                 let result = self.inner.blob_load(store_id, blob_id);
                 Some(match result {
-                    Ok(blob) => Response::BlobLoad(blob),
-                    Err(status) => Response::Status(status),
+                    Ok(blob) => ResponseOut::BlobLoad(blob),
+                    Err(status) => ResponseOut::Status(status),
                 })
             },
-            Request::BlobSave(store_id, blob) => {
+            RequestIn::BlobSave(store_id, blob) => {
                 let result = self.inner.blob_save(store_id, blob);
                 Some(match result {
-                    Ok(status_id) => Response::BlobSave(status_id),
-                    Err(status) => Response::Status(status),
+                    Ok(status_id) => ResponseOut::BlobSave(status_id),
+                    Err(status) => ResponseOut::Status(status),
                 })
             },
-            Request::BlobDelete(store_id, blob_id) => {
+            RequestIn::BlobDelete(store_id, blob_id) => {
                 let status = self.inner.blob_delete(store_id, blob_id);
-                Some(Response::Status(status))
+                Some(ResponseOut::Status(status))
             }
-            Request::Bye => None,
+            RequestIn::Bye => None,
         }
     }
 }

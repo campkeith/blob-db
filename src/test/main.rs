@@ -11,7 +11,7 @@ use clap::Parser;
 
 mod fake;
 use blob_db::funcs;
-use blob_db::types::{StoreId, BlobId, Blob, Status, SaveStatus, Result};
+use blob_db::types::{StoreId, BlobId, Status, SaveStatus, Result};
 use blob_db::client::Client;
 
 
@@ -33,7 +33,7 @@ fn main() -> Result<()> {
 
 struct TestRig {
     client: Client,
-    db: HashMap<StoreId, HashMap<BlobId, Blob>>,
+    db: HashMap<StoreId, HashMap<BlobId, fake::Blob>>,
     rng: ThreadRng,
 }
 
@@ -141,7 +141,11 @@ impl TestRig {
             } else {
                 Err(Status::NotFound)
             };
-        let result = self.client.blob_load(store_id, &blob_id);
+        let result_stream = self.client.blob_load(store_id, &blob_id);
+        let result = match result_stream {
+            Ok(mut blob_stream) => Ok(fake::Blob(blob_stream.slurp()?)),
+            Err(error) => Err(error),
+        };
         assert_eq!(result, exp_result);
         Ok(())
     }
