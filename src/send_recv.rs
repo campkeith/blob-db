@@ -10,7 +10,7 @@ use crate::{log_ret_err, log_err_ret_val, log_err};
 use crate::types::{
     RequestIn, RequestOut, ResponseIn, ResponseOut,
     Status, SaveStatus, Result, Code,
-    StoreId, StoreIds, BlobId, BlobIds, BlobStream, BlobFile,
+    StoreId, StoreIds, BlobId, BlobIds, BlobStream, BlobFile, BlobSize,
     StoreIdRef, BlobRef,
 };
 
@@ -105,6 +105,8 @@ impl Send for ResponseOut {
                 send!(stream, Status::Okay, blob_id),
             ResponseOut::BlobList(blob_ids) =>
                 send!(stream, Status::Okay, blob_ids),
+            ResponseOut::BlobInfo(blob_size) =>
+                send!(stream, Status::Okay, blob_size),
             ResponseOut::BlobLoad(blob) =>
                 send!(stream, Status::Okay, blob),
             ResponseOut::BlobSave((status, blob_id)) =>
@@ -260,6 +262,8 @@ impl<'a> ResponseIn<'a> {
                 ResponseIn::BlobHash(BlobId::recv(stream)?),
             (Status::Okay, RequestOut::BlobList(..)) =>
                 ResponseIn::BlobList(BlobIds::recv(stream)?),
+            (Status::Okay, RequestOut::BlobInfo(..)) =>
+                ResponseIn::BlobInfo(BlobSize::recv(stream)?),
             (Status::Okay, RequestOut::BlobLoad(..)) =>
                 ResponseIn::BlobLoad(BlobStream::recv(stream)?),
             (Status::Okay, RequestOut::BlobSave(..)) =>

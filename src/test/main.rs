@@ -11,7 +11,7 @@ use clap::Parser;
 
 mod fake;
 use blob_db::funcs;
-use blob_db::types::{StoreId, BlobId, Status, SaveStatus, Result};
+use blob_db::types::{StoreId, BlobId, BlobSize, Status, SaveStatus, Result};
 use blob_db::client::Client;
 
 
@@ -77,7 +77,7 @@ impl TestRig {
     }
 
     fn test_store_create(&mut self) -> Result<()> {
-        let (store_id, in_db) = self.random_store(0.5);
+        let (store_id, in_db) = self.random_store();
         let exp_result = if in_db {Err(Status::AlreadyExists)}
                          else {Ok(())};
         let result = self.client.store_create(&store_id);
@@ -89,7 +89,7 @@ impl TestRig {
     }
 
     fn test_store_destroy(&mut self) -> Result<()> {
-        let (store_id, in_db) = self.random_store(0.5);
+        let (store_id, in_db) = self.random_store();
         let exp_result = if in_db {Ok(())}
                          else {Err(Status::NotFound)};
         let result = self.client.store_destroy(&store_id);
@@ -109,7 +109,7 @@ impl TestRig {
     }
 
     fn test_blob_list(&mut self) -> Result<()> {
-        let (store_id, in_db) = self.random_store(0.5);
+        let (store_id, in_db) = self.random_store();
         let exp_result =
             if in_db {
                 let store = self.db.get(&store_id).unwrap();
@@ -126,8 +126,12 @@ impl TestRig {
     fn test_blob_info(&mut self) -> Result<()> {
         let ((store_id, _store_ok), (blob_id, blob_ok)) = self.random_store_blob();
         let exp_result =
-            if blob_ok {Ok(())}
-            else {Err(Status::NotFound)};
+            if blob_ok {
+                let blob = self.db.get(&store_id).unwrap().get(&blob_id).unwrap();
+                Ok(BlobSize::try_from(blob.0.len()).unwrap())
+            } else {
+                Err(Status::NotFound)
+            };
         let result = self.client.blob_info(store_id, &blob_id);
         assert_eq!(result, exp_result);
         Ok(())
@@ -189,10 +193,10 @@ impl TestRig {
     }
 
     fn random_store_blob(&mut self) -> ((StoreId, bool), (BlobId, bool)) {
-        let (store_id, store_in_db) = self.random_store(0.75);
+        let (store_id, store_in_db) = self.random_store_with_p(0.8);
         let (blob_id, blob_in_store) = if store_in_db {
             let store = self.db.get(&store_id).unwrap();
-            let blob_in_store = !store.is_empty() && self.rng.random_bool(0.5);
+            let blob_in_store = !store.is_empty() && self.rng.random_bool(0.8);
             if blob_in_store {
                 (*store.keys().choose(&mut self.rng).unwrap(), true)
             } else {
@@ -204,7 +208,11 @@ impl TestRig {
         ((store_id, store_in_db), (blob_id, blob_in_store))
     }
 
-    fn random_store(&mut self, in_db_p: f64) -> (StoreId, bool) {
+    fn random_store(&mut self) -> (StoreId, bool) {
+        self.random_store_with_p(0.6)
+    }
+
+    fn random_store_with_p(&mut self, in_db_p: f64) -> (StoreId, bool) {
         let in_db = !self.db.is_empty() && self.rng.random_bool(in_db_p);
         let store_id =
             if in_db {self.db.keys().choose(&mut self.rng).unwrap().clone()}

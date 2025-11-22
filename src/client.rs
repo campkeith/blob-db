@@ -2,7 +2,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::fmt::{self, Debug};
 
 use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
-use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, BlobStream,
+use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, BlobStream, BlobSize,
                    RequestOut, ResponseIn, Result, Status, SaveStatus};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
 use crate::debug::format_addr;
@@ -38,99 +38,85 @@ impl Debug for Client {
 }
 
 impl Drop for Client {
+    log_call!(
     fn drop(&mut self) {
-        log_call!(self.drop() ->
-            if let Err(status) = RequestOut::Bye.send(&mut self.stream) {
-                eprintln!("Client::drop: failed to send Bye: {status:?}");
-            }
-        )
-    }
+        if let Err(status) = RequestOut::Bye.send(&mut self.stream) {
+            eprintln!("Client::drop: failed to send Bye: {status:?}");
+        }
+    });
 }
 
 impl Client {
+    log_call!(
     pub fn connect(address: impl ToSocketAddrs + Debug) -> Result<Self> {
-        log_call!(connect(address) -> {
-            let stream = log_ret_err!(TcpStream::connect(address));
-            let mut client = Client{stream};
-            client.shake_hands()?;
-            Ok(client)
-        })
-    }
+        let stream = log_ret_err!(TcpStream::connect(address));
+        let mut client = Client{stream};
+        client.shake_hands()?;
+        Ok(client)
+    });
 
     fn shake_hands(&mut self) -> Result<()> {
         send_open_door(&mut self.stream)?;
         recv_welcome(&mut self.stream)
     }
 
+    log_call!(
     pub fn store_list(&mut self) -> Result<StoreIds> {
-        log_call!(self.store_list() ->
-            send_req_recv_val!(self, StoreList())
-        )
-    }
+        send_req_recv_val!(self, StoreList())
+    });
 
+    log_call!(
     pub fn store_create(&mut self, store_id: impl AsRef<str> + Debug)
             -> Result<()> {
-        log_call!(self.store_create(store_id) ->
-            self.op_status_resp(RequestOut::StoreCreate(store_id.as_ref()))
-        )
-    }
+        self.op_status_resp(RequestOut::StoreCreate(store_id.as_ref()))
+    });
 
+    log_call!(
     pub fn store_destroy(&mut self, store_id: impl AsRef<str> + Debug)
             -> Result<()> {
-        log_call!(self.store_destroy(store_id) ->
-            self.op_status_resp(RequestOut::StoreDestroy(store_id.as_ref()))
-        )
-    }
+        self.op_status_resp(RequestOut::StoreDestroy(store_id.as_ref()))
+    });
 
+    log_call!(
     pub fn blob_hash(&mut self, blob: impl AsRef<[u8]> + Debug)
             -> Result<BlobId> {
-        log_call!(self.blob_hash(blob) ->
-            send_req_recv_val!(self, BlobHash(blob.as_ref()))
-        )
-    }
+        send_req_recv_val!(self, BlobHash(blob.as_ref()))
+    });
 
+    log_call!(
     pub fn blob_list(&mut self, store_id: impl AsRef<str> + Debug)
             -> Result<BlobIds> {
-        log_call!(self.blob_list(store_id) ->
-            send_req_recv_val!(self, BlobList(store_id.as_ref()))
-        )
-    }
+        send_req_recv_val!(self, BlobList(store_id.as_ref()))
+    });
 
+    log_call!(
     pub fn blob_info(&mut self, store_id: impl AsRef<str> + Debug,
                                 blob_id: BlobIdRef)
-            -> Result<()> {
-        log_call!(self.blob_info(store_id, blob_id) -> {
-            let request = RequestOut::BlobInfo(store_id.as_ref(), blob_id);
-            self.op_status_resp(request)
-        })
-    }
+            -> Result<BlobSize> {
+        send_req_recv_val!(self, BlobInfo(store_id.as_ref(), blob_id))
+    });
 
+    log_call!({named_inner=blob_load_inner}
     pub fn blob_load<'a>(&'a mut self, store_id: impl AsRef<str> + Debug,
                                 blob_id: BlobIdRef)
             -> Result<BlobStream<'a>> {
-        let base = format!("{self:?}.blob_load");
-        println!("{base}(store_id={store_id:?}, blob_id={blob_id:?}):");
-        let result = send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id));
-        println!("{base} -> {result:?}");
-        result
-    }
+        send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id))
+    });
 
+    log_call!(
     pub fn blob_save(&mut self, store_id: impl AsRef<str> + Debug,
                                 blob: impl AsRef<[u8]> + Debug)
             -> Result<(SaveStatus, BlobId)> {
-        log_call!(self.blob_save(store_id, blob) ->
-            send_req_recv_val!(self, BlobSave(store_id.as_ref(), blob.as_ref()))
-        )
-    }
+        send_req_recv_val!(self, BlobSave(store_id.as_ref(), blob.as_ref()))
+    });
 
+    log_call!(
     pub fn blob_delete(&mut self, store_id: impl AsRef<str> + Debug,
                                   blob_id: BlobIdRef)
             -> Result<()> {
-        log_call!(self.blob_delete(store_id, blob_id) -> {
-            let request = RequestOut::BlobDelete(store_id.as_ref(), blob_id);
-            self.op_status_resp(request)
-        })
-    }
+        let request = RequestOut::BlobDelete(store_id.as_ref(), blob_id);
+        self.op_status_resp(request)
+    });
 
     fn op_status_resp(&mut self, request: RequestOut) -> Result<()> {
         request.send(&mut self.stream)?;

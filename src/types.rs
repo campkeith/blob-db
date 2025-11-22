@@ -42,6 +42,7 @@ pub enum ResponseOut {
     StoreList(StoreIds),
     BlobHash(BlobId),
     BlobList(BlobIds),
+    BlobInfo(BlobSize),
     BlobLoad(BlobFile),
     BlobSave((SaveStatus, BlobId)),
 }
@@ -52,6 +53,7 @@ pub enum ResponseIn<'a> {
     StoreList(StoreIds),
     BlobHash(BlobId),
     BlobList(BlobIds),
+    BlobInfo(BlobSize),
     BlobLoad(BlobStream<'a>),
     BlobSave((SaveStatus, BlobId)),
 }
@@ -88,10 +90,9 @@ pub struct BlobStream<'a> {
 }
 
 pub type StoreIdRef<'a> = &'a str;
-pub type StoreIdsRef<'a> = &'a [StoreId];
 pub type BlobIdRef<'a> = &'a BlobId;
-pub type BlobIdsRef<'a> = &'a [BlobId];
 pub type BlobRef<'a> = &'a [u8];
 
+pub type BlobSize = u64;
 pub type Code = u64;
 pub type Result<Val> = result::Result<Val, Status>;

@@ -6,6 +6,7 @@ use crate::funcs;
 use crate::persister::Persister;
 use crate::types::{RequestIn, ResponseOut, Result, Status};
 use crate::send_recv::{recv_open_door, send_welcome, send_not_welcome, Send};
+use crate::debug::format_addr;
 
 pub struct Server {
     inner: Persister,
@@ -31,6 +32,7 @@ impl Server {
 
     pub fn go(&mut self) -> Result<()> {
         let listener = log_ret_err!(TcpListener::bind(self.address.as_ref()));
+        println!("Server at {} is up.", format_addr(listener.local_addr()));
         for stream_result in listener.incoming() {
             match stream_result {
                 Err(error) => {
@@ -46,13 +48,13 @@ impl Server {
     }
 
     fn client_session(&mut self, stream: &mut TcpStream) {
-        let peer_str = format_peer_addr(stream);
-        println!("Client {peer_str} connected.");
+        let peer_str = format_addr(stream.peer_addr());
+        println!("Client at {peer_str} connected.");
         let result = self.handle_stream(stream);
         match result {
-            Ok(_) => println!("Client {peer_str} disconnected."),
+            Ok(_) => println!("Client at {peer_str} disconnected."),
             Err(status) => {
-                eprintln!("Dropping client {peer_str} due to {status:?}.");
+                eprintln!("Dropping client at {peer_str} due to {status:?}.");
             }
         }
     }
@@ -78,9 +80,7 @@ impl Server {
     fn handle_request(&mut self, stream: &mut TcpStream) -> Result<bool> {
         let opt_response = {
             let mut request = RequestIn::recv(stream)?;
-            log_call!(self.process_request(request) ->
-                self.process_request(&mut request)
-            )
+            self.process_request(&mut request)
         };
         match opt_response {
             Some(response) => {
@@ -91,6 +91,7 @@ impl Server {
         }
     }
 
+    log_call!(
     fn process_request<'a>(&mut self, request: &mut RequestIn)
             -> Option<ResponseOut> {
         match request {
@@ -124,8 +125,11 @@ impl Server {
                 })
             },
             RequestIn::BlobInfo(store_id, blob_id) => {
-                let status = self.inner.blob_info(store_id, blob_id);
-                Some(ResponseOut::Status(status))
+                let result = self.inner.blob_info(store_id, blob_id);
+                Some(match result {
+                    Ok(size) => ResponseOut::BlobInfo(size),
+                    Err(status) => ResponseOut::Status(status),
+                })
             },
             RequestIn::BlobLoad(store_id, blob_id) => {
                 let result = self.inner.blob_load(store_id, blob_id);
@@ -147,12 +151,5 @@ impl Server {
             }
             RequestIn::Bye => None,
         }
-    }
-}
-
-fn format_peer_addr(conn: &TcpStream) -> Box<str> {
-    match conn.peer_addr() {
-        Ok(peer) => format!("{peer:?}").into(),
-        Err(_) => "???".into(),
-    }
+    });
 }

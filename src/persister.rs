@@ -12,7 +12,7 @@ use renamore::rename_exclusive;
 use crate::funcs;
 use crate::{log_ret_err, log_err_ret_val, log_err, map_ret_err, log_call};
 use crate::types::{StoreId, StoreIdRef, StoreIds, BlobId, BlobIdRef, BlobIds,
-                   BlobFile, BlobStream, Status, Result, SaveStatus};
+                   BlobFile, BlobStream, BlobSize, Status, Result, SaveStatus};
 
 
 pub struct Persister {
@@ -42,7 +42,8 @@ impl Persister {
         })
     }
 
-    pub fn store_list(&self) -> Result<StoreIds> {
+    log_call!(
+    pub fn store_list(&mut self) -> Result<StoreIds> {
         fn entry_to_name(entry_res: io::Result<DirEntry>) -> Result<StoreId> {
             let entry = log_ret_err!(entry_res);
             match entry.file_name().into_string() {
@@ -54,62 +55,55 @@ impl Persister {
             }
         }
 
-        log_call!(self.store_list() -> {
             let dir_iter = log_ret_err!(fs::read_dir(&self.stores_path()));
             dir_iter.map(entry_to_name).collect()
-        })
-    }
+    });
 
+    log_call!(
     pub fn store_create(&self, store_id: StoreIdRef) -> Status {
-        log_call!(self.store_create(store_id) -> {
-            let result = fs::create_dir(self.store_path(store_id));
-            map_ret_err!(result, ErrorKind::AlreadyExists, Status::AlreadyExists);
-            log_err_ret_val!(result, Status::InternalError);
-            Status::Okay
-        })
-    }
+        let result = fs::create_dir(self.store_path(store_id));
+        map_ret_err!(result, ErrorKind::AlreadyExists, Status::AlreadyExists);
+        log_err_ret_val!(result, Status::InternalError);
+        Status::Okay
+    });
 
+    log_call!(
     pub fn store_destroy(&self, store_id: StoreIdRef) -> Status {
-        log_call!(self.store_destroy(store_id) -> {
             let result = fs::remove_dir_all(self.store_path(store_id));
             map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
             log_err_ret_val!(result, Status::InternalError);
             Status::Okay
-        })
-    }
+    });
 
+    log_call!(
     pub fn blob_list(&self, store_id: StoreIdRef) -> Result<BlobIds> {
         fn entry_to_hash(entry_res: io::Result<DirEntry>) -> Result<BlobId> {
             let entry = log_ret_err!(entry_res);
             funcs::str_to_hash(entry.file_name().as_bytes())
         }
 
-        log_call!(self.blob_list(store_id) -> {
             let store_iter = fs::read_dir(self.store_path(store_id));
             map_ret_err!(store_iter, ErrorKind::NotFound, Err(Status::NotFound));
             log_ret_err!(store_iter).map(entry_to_hash).collect()
-        })
-    }
+    });
 
-    pub fn blob_info(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Status {
-        log_call!(self.blob_info(store_id, blob_id) -> {
-            match self.blob_open(store_id, blob_id) {
-                Err(status) => status,
-                Ok(_) => Status::Okay,
-            }
-        })
-    }
+    log_call!(
+    pub fn blob_info(&self, store_id: StoreIdRef, blob_id: BlobIdRef)
+            -> Result<BlobSize> {
+            let file = self.blob_open(store_id, blob_id)?;
+            let metadata = log_ret_err!(file.metadata());
+            Ok(metadata.len())
+    });
 
+    log_call!(
     pub fn blob_load(&self, store_id: StoreIdRef, blob_id: BlobIdRef)
             -> Result<BlobFile> {
-        log_call!(self.blob_load(store_id, blob_id) -> {
             self.blob_open(store_id, blob_id)
-        })
-    }
+    });
 
+    log_call!(
     pub fn blob_save(&mut self, store_id: StoreIdRef, blob: &mut BlobStream)
             -> Result<(SaveStatus, BlobId)> {
-        log_call!(self.blob_save(store_id, blob) -> {
             let tmp_file = TmpFile::create(self.tmp_blob_path(),
                                            blob.bytes_remain)?;
             let mut buf = log_ret_err!(unsafe {
@@ -129,17 +123,15 @@ impl Persister {
                         log_ret_err!(Err(error)),
                 }
             }
-        })
-    }
+    });
 
+    log_call!(
     pub fn blob_delete(&self, store_id: StoreIdRef, blob_id: BlobIdRef) -> Status {
-        log_call!(self.blob_delete(store_id, blob_id) -> {
             let result = fs::remove_file(self.blob_path(store_id, blob_id));
             map_ret_err!(result, ErrorKind::NotFound, Status::NotFound);
             log_err_ret_val!(result, Status::InternalError);
             Status::Okay
-        })
-    }
+    });
 
     fn blob_open(&self, store_id: StoreIdRef, blob_id: BlobIdRef)
             -> Result<File> {
