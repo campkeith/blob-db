@@ -78,7 +78,7 @@ impl TestRig {
 
     fn test_store_create(&mut self) -> Result<()> {
         let (store_id, in_db) = self.random_store();
-        let exp_result = if in_db {Err(Status::AlreadyExists)}
+        let exp_result = if in_db {Err(Status::Exists)}
                          else {Ok(())};
         let result = self.client.store_create(&store_id);
         assert_eq!(result, exp_result);
@@ -169,7 +169,7 @@ impl TestRig {
         let exp_result = match (store_ok, blob_ok) {
             (false, _) => Err(Status::NotFound),
             (true, false) => Ok((SaveStatus::Created, exp_blob_id)),
-            (true, true) => Ok((SaveStatus::AlreadyExists, exp_blob_id)),
+            (true, true) => Ok((SaveStatus::Exists, exp_blob_id)),
         };
         let result = self.client.blob_save(&store_id, &blob);
         assert_eq!(result, exp_result);

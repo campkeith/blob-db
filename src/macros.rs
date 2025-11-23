@@ -1,36 +1,23 @@
-#[macro_export] macro_rules!
-log_ret_err{($result: expr) => {
-    log_err_ret_val!($result, Err(Status::InternalError))
-}}
-
-#[macro_export] macro_rules!
-log_err_ret_val{($result: expr, $err_ret_val: expr) => {
-    match $result {
-        Ok(val) => val,
-        Err(error) => {
-            log_err!(error);
-            return $err_ret_val;
+#[macro_export] macro_rules! log_err {
+    (? $result:expr) => {{
+        match $result {
+            Ok(val) => val,
+            Err(error) => return Err(log_err!(map(error))),
         }
-    }
-}}
+    }};
 
-#[macro_export] macro_rules!
-log_err{($error: expr) => {
-    let (file, line, error) = (file!(), line!(), $error);
-    eprintln!("{file}:{line}: {error:?}: {error}");
-}}
+    (map($error:expr)) => {{
+        log_err!($error);
+        Status::InternalError
+    }};
 
-#[macro_export] macro_rules!
-map_ret_err{($result: expr, $err_kind: expr, $err_ret_val: expr) => {
-    if let Err(ref error) = $result {
-        if error.kind() == $err_kind {
-            return $err_ret_val;
-        }
-    }
-}}
+    ($error:expr) => {{
+        let (error, file, line) = ($error, file!(), line!());
+        eprintln!("{file}:{line}: {error:?}: {error}")
+    }};
+}
 
-#[macro_export] macro_rules!
-log_call{
+#[macro_export] macro_rules! log_call {
     ($({named_inner=$inner:ident})?
         $vis:vis fn $name:ident $(<$life:lifetime>)?
             ($($param:ident: $param_ty:ty),*) $($rem:tt)*) => {

@@ -6,7 +6,7 @@ use std::io::{Read, BufRead, BufReader};
 use sha2::{Sha256, Digest};
 
 use crate::types::{BlobId, BlobIdStr, BlobIdRef, BlobRef, Status, Result};
-use crate::{log_err, log_ret_err, log_err_ret_val};
+use crate::log_err;
 
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -32,7 +32,7 @@ pub fn hash_copy(input: &mut impl Read, output: &mut [u8])
         -> Result<BlobId> {
     let mut hasher = Sha256::new();
     for chunk in output.chunks_mut(CHUNK_SIZE) {
-        log_ret_err!(input.read_exact(chunk));
+        log_err!(?input.read_exact(chunk));
         hasher.update(chunk);
     }
     Ok(BlobId(hasher.finalize().into()))
@@ -41,8 +41,8 @@ pub fn hash_copy(input: &mut impl Read, output: &mut [u8])
 pub fn hash(input: &mut impl Read) -> Result<BlobId> {
     let mut reader = BufReader::with_capacity(CHUNK_SIZE, input);
     let mut hasher = Sha256::new();
-    while log_ret_err!(reader.has_data_left()) {
-        let chunk = log_ret_err!(reader.fill_buf());
+    while log_err!(?reader.has_data_left()) {
+        let chunk = log_err!(?reader.fill_buf());
         hasher.update(chunk);
         let chunk_size = chunk.len();
         reader.consume(chunk_size);
@@ -50,7 +50,7 @@ pub fn hash(input: &mut impl Read) -> Result<BlobId> {
     Ok(BlobId(hasher.finalize().into()))
 }
 
-pub const fn code8(bytes: & [u8; 8]) -> u64 {
+pub const fn code8(bytes: &[u8; 8]) -> u64 {
     u64::from_le_bytes(*bytes)
 }
 
@@ -85,8 +85,7 @@ pub fn str_to_hash(string: &[u8]) -> Result<BlobId> {
             },
         }
     }
-    let hash_str = log_ret_err!(BlobIdStr::try_from(string));
+    let hash_str = log_err!(?BlobIdStr::try_from(string));
     let hash_str_chunks: [[u8; 2]; _] = unsafe {mem::transmute(hash_str)};
-    let hash = hash_str_chunks.try_map(hex_to_byte)?;
-    Ok(BlobId(hash))
+    hash_str_chunks.try_map(hex_to_byte).map(BlobId)
 }

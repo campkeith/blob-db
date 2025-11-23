@@ -62,8 +62,8 @@ pub enum ResponseIn<'a> {
 #[derive(Debug, Copy, Clone, PartialEq, TryFromPrimitive, IntoPrimitive)]
 pub enum Status {
     Okay = code8(b"okaydoke"),
+    Exists = code8(b"itexists"),
     NotFound = code8(b"notfound"),
-    AlreadyExists = code8(b"itexists"),
     BadArgument = code8(b"invalarg"),
     NoSpace = code8(b"no-space"),
     InternalError = code8(b"internal"),
@@ -73,7 +73,7 @@ pub enum Status {
 #[derive(Debug, Copy, Clone, PartialEq, TryFromPrimitive, IntoPrimitive)]
 pub enum SaveStatus {
     Created = Status::Okay as Code,
-    AlreadyExists = Status::AlreadyExists as Code,
+    Exists = Status::Exists as Code,
 }
 
 
@@ -93,6 +93,6 @@ pub type StoreIdRef<'a> = &'a str;
 pub type BlobIdRef<'a> = &'a BlobId;
 pub type BlobRef<'a> = &'a [u8];
 
-pub type BlobSize = u64;
 pub type Code = u64;
+pub type BlobSize = u64;
 pub type Result<Val> = result::Result<Val, Status>;

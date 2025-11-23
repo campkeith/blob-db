@@ -1,7 +1,7 @@
 use std::fmt;
 use std::net::{TcpListener, TcpStream};
 
-use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
+use crate::{log_call, log_err};
 use crate::funcs;
 use crate::persister::Persister;
 use crate::types::{RequestIn, ResponseOut, Result, Status};
@@ -31,20 +31,18 @@ impl Server {
     }
 
     pub fn go(&mut self) -> Result<()> {
-        let listener = log_ret_err!(TcpListener::bind(self.address.as_ref()));
+        let listener = log_err!(?TcpListener::bind(self.address.as_ref()));
         println!("Server at {} is up.", format_addr(listener.local_addr()));
         for stream_result in listener.incoming() {
             match stream_result {
-                Err(error) => {
-                    eprintln!("Error connecting to client: {error:?}: {error}");
-                }
-                Ok(mut stream) => {
-                    self.client_session(&mut stream);
-                }
+                Err(error) =>
+                    eprintln!("Error connecting to client: {error:?}: {error}"),
+                Ok(mut stream) =>
+                    self.client_session(&mut stream),
             }
         }
-        eprintln!("go: exiting accept loop...");
-        Ok(())
+        eprintln!("TcpListener::incoming iterator terminated unexpectedly.");
+        Err(Status::InternalError)
     }
 
     fn client_session(&mut self, stream: &mut TcpStream) {
@@ -61,19 +59,20 @@ impl Server {
 
     fn handle_stream(&mut self, stream: &mut TcpStream) -> Result<()> {
         self.shake_hands(stream)?;
-        let mut run = true;
-        while run {
-            run = self.handle_request(stream)?;
-        }
+        while self.handle_request(stream)? {}
         Ok(())
     }
 
     fn shake_hands(&self, stream: &mut TcpStream) -> Result<()> {
         let result = recv_open_door(stream);
         match result {
-            Ok(_) => send_welcome(stream),
-            Err(Status::BadArgument) => send_not_welcome(stream),
-            _ => result,
+            Ok(()) => send_welcome(stream),
+            Err(status) => {
+                if status == Status::BadArgument {
+                    send_not_welcome(stream)?;
+                }
+                Err(status)
+            }
         }
     }
 
@@ -94,61 +93,39 @@ impl Server {
     log_call!(
     fn process_request<'a>(&mut self, request: &mut RequestIn)
             -> Option<ResponseOut> {
-        match request {
-            RequestIn::StoreList() => {
-                let result = self.inner.store_list();
-                Some(match result {
-                    Ok(list) => ResponseOut::StoreList(list),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::StoreCreate(store_id) => {
-                let status = self.inner.store_create(store_id);
-                Some(ResponseOut::Status(status))
-            },
-            RequestIn::StoreDestroy(store_id) => {
-                let status = self.inner.store_destroy(store_id);
-                Some(ResponseOut::Status(status))
-            },
-            RequestIn::BlobHash(blob_stream) => {
-                let result = funcs::hash(blob_stream);
-                Some(match result {
-                    Ok(blob_id) => ResponseOut::BlobHash(blob_id),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::BlobList(store_id) => {
-                let result = self.inner.blob_list(store_id);
-                Some(match result {
-                    Ok(list) => ResponseOut::BlobList(list),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::BlobInfo(store_id, blob_id) => {
-                let result = self.inner.blob_info(store_id, blob_id);
-                Some(match result {
-                    Ok(size) => ResponseOut::BlobInfo(size),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::BlobLoad(store_id, blob_id) => {
-                let result = self.inner.blob_load(store_id, blob_id);
-                Some(match result {
-                    Ok(blob) => ResponseOut::BlobLoad(blob),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::BlobSave(store_id, blob) => {
-                let result = self.inner.blob_save(store_id, blob);
-                Some(match result {
-                    Ok(status_id) => ResponseOut::BlobSave(status_id),
-                    Err(status) => ResponseOut::Status(status),
-                })
-            },
-            RequestIn::BlobDelete(store_id, blob_id) => {
-                let status = self.inner.blob_delete(store_id, blob_id);
-                Some(ResponseOut::Status(status))
+        macro_rules! ret_err_resp{($result:expr) => {
+            match $result {
+                Ok(val) => val,
+                Err(status) => return Some(ResponseOut::Status(status)),
             }
+        }}
+
+        fn status_resp(result: Result<()>) -> ResponseOut {
+            ResponseOut::Status(match result {
+                Ok(()) => Status::Okay,
+                Err(status) => status,
+            })
+        }
+
+        match request {
+            RequestIn::StoreList() => Some(ResponseOut::StoreList(
+                ret_err_resp!(self.inner.store_list()))),
+            RequestIn::StoreCreate(store_id) => Some(status_resp(
+                self.inner.store_create(store_id))),
+            RequestIn::StoreDestroy(store_id) => Some(status_resp(
+                self.inner.store_destroy(store_id))),
+            RequestIn::BlobHash(blob_stream) => Some(ResponseOut::BlobHash(
+                ret_err_resp!(funcs::hash(blob_stream)))),
+            RequestIn::BlobList(store_id) => Some(ResponseOut::BlobList(
+                ret_err_resp!(self.inner.blob_list(store_id)))),
+            RequestIn::BlobInfo(store_id, blob_id) => Some(ResponseOut::BlobInfo(
+                ret_err_resp!(self.inner.blob_info(store_id, blob_id)))),
+            RequestIn::BlobLoad(store_id, blob_id) => Some(ResponseOut::BlobLoad(
+                ret_err_resp!(self.inner.blob_load(store_id, blob_id)))),
+            RequestIn::BlobSave(store_id, blob) => Some(ResponseOut::BlobSave(
+                ret_err_resp!(self.inner.blob_save(store_id, blob)))),
+            RequestIn::BlobDelete(store_id, blob_id) => Some(status_resp(
+                self.inner.blob_delete(store_id, blob_id))),
             RequestIn::Bye => None,
         }
     });

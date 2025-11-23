@@ -5,9 +5,9 @@
 mod macros;
 
 pub mod types;
+pub mod funcs;
 pub mod client;
 pub mod server;
 pub mod persister;
-pub mod funcs;
 mod send_recv;
 mod debug;

@@ -5,8 +5,8 @@ use std::io::{self, Read, Write};
 use memmap2::Mmap;
 use num_enum::{TryFromPrimitive, IntoPrimitive};
 
+use crate::log_err;
 use crate::funcs::code8;
-use crate::{log_ret_err, log_err_ret_val, log_err};
 use crate::types::{
     RequestIn, RequestOut, ResponseIn, ResponseOut,
     Status, SaveStatus, Result, Code,
@@ -16,8 +16,10 @@ use crate::types::{
 
 
 type ProtoVersion = u16;
-const PROTO_VERSION: ProtoVersion = 1;
+type StoreIdSize = u16;
+type ArraySize = u64;
 
+const PROTO_VERSION: ProtoVersion = 1;
 const CODE_OPEN_DOOR: Code = code8(b"OpenDoor");
 
 #[repr(u64)]
@@ -48,13 +50,13 @@ pub trait Send {
     fn send(&self, stream: &mut impl Write) -> Result<()>;
 }
 
-macro_rules! send {($stream: expr, $($item: expr), *) => {
-    {$($item.send($stream)?;)*}
-}}
+macro_rules! send {($stream: expr, $($item: expr),*) => {{
+    $($item.send($stream)?;)*
+    Ok(())
+}}}
 
 pub fn send_open_door(stream: &mut impl Write) -> Result<()> {
-    send!(stream, CODE_OPEN_DOOR, PROTO_VERSION);
-    Ok(())
+    send!(stream, CODE_OPEN_DOOR, PROTO_VERSION)
 }
 
 pub fn send_welcome(stream: &mut impl Write) -> Result<()> {
@@ -62,8 +64,7 @@ pub fn send_welcome(stream: &mut impl Write) -> Result<()> {
 }
 
 pub fn send_not_welcome(stream: &mut impl Write) -> Result<()> {
-    send!(stream, GreetCode::NotWelcome, PROTO_VERSION);
-    Ok(())
+    send!(stream, GreetCode::NotWelcome, PROTO_VERSION)
 }
 
 impl Send for RequestOut<'_> {
@@ -90,7 +91,6 @@ impl Send for RequestOut<'_> {
             RequestOut::Bye =>
                 send!(stream, RequestCode::Bye),
         }
-        Ok(())
     }
 }
 
@@ -112,14 +112,13 @@ impl Send for ResponseOut {
             ResponseOut::BlobSave((status, blob_id)) =>
                 send!(stream, status, blob_id),
         }
-        Ok(())
     }
 }
 
 impl Send for StoreIdRef<'_> {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
         let buffer = self.as_bytes();
-        let size = log_ret_err!(u16::try_from(buffer.len()));
+        let size = log_err!(?StoreIdSize::try_from(buffer.len()));
         size.send(stream)?;
         bytes_send(stream, buffer)
     }
@@ -127,7 +126,7 @@ impl Send for StoreIdRef<'_> {
 
 impl Send for StoreIds {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
-        let size = log_ret_err!(u64::try_from(self.len()));
+        let size = log_err!(?ArraySize::try_from(self.len()));
         size.send(stream)?;
         for store_id in self {
             Send::send(&store_id.as_ref(), stream)?;
@@ -145,8 +144,8 @@ impl Send for BlobId {
 
 impl Send for BlobIds {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
-        let size = log_ret_err!(u64::try_from(self.len()));
-        let buffer: Box<[u8]> = self.iter().map(|& BlobId(id)| id)
+        let size = log_err!(?ArraySize::try_from(self.len()));
+        let buffer: Box<[u8]> = self.iter().map(|&BlobId(id)| id)
                                     .flatten().collect();
         size.send(stream)?;
         bytes_send(stream, &buffer)
@@ -155,14 +154,14 @@ impl Send for BlobIds {
 
 impl Send for BlobFile {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
-        let buf = &*log_ret_err!(unsafe{Mmap::map(self)});
+        let buf = &*log_err!(?unsafe{Mmap::map(self)});
         buf.send(stream)
     }
 }
 
 impl Send for BlobRef<'_> {
     fn send(&self, stream: &mut impl Write) -> Result<()> {
-        let size = log_ret_err!(u64::try_from(self.len()));
+        let size = log_err!(?BlobSize::try_from(self.len()));
         size.send(stream)?;
         bytes_send(stream, self)
     }
@@ -187,7 +186,7 @@ macro_rules! impl_send_for_num {($($Num: ty), +) => {$(
 impl_send_for_num!(u16, u64);
 
 fn bytes_send(stream: &mut impl Write, bytes: &[u8]) -> Result<()> {
-    log_ret_err!(stream.write_all(bytes));
+    log_err!(?stream.write_all(bytes));
     Ok(())
 }
 
@@ -221,33 +220,26 @@ pub fn recv_welcome(stream: &mut impl Read) -> Result<()> {
 impl<'a> RequestIn<'a> {
     pub fn recv(stream: &'a mut impl Read) -> Result<Self> {
         let code = RequestCode::recv(stream)?;
-        let request = match code {
-            RequestCode::StoreList =>
-                RequestIn::StoreList(),
-            RequestCode::StoreCreate =>
-                RequestIn::StoreCreate(StoreId::recv(stream)?),
-            RequestCode::StoreDestroy =>
-                RequestIn::StoreDestroy(StoreId::recv(stream)?),
-            RequestCode::BlobHash =>
-                RequestIn::BlobHash(BlobStream::recv(stream)?),
-            RequestCode::BlobList =>
-                RequestIn::BlobList(StoreId::recv(stream)?),
-            RequestCode::BlobInfo =>
-                RequestIn::BlobInfo(StoreId::recv(stream)?,
-                                    BlobId::recv(stream)?),
-            RequestCode::BlobLoad =>
-                RequestIn::BlobLoad(StoreId::recv(stream)?,
-                                    BlobId::recv(stream)?),
-            RequestCode::BlobSave =>
-                RequestIn::BlobSave(StoreId::recv(stream)?,
-                                    BlobStream::recv(stream)?),
-            RequestCode::BlobDelete =>
-                RequestIn::BlobDelete(StoreId::recv(stream)?,
-                                      BlobId::recv(stream)?),
-            RequestCode::Bye =>
-                RequestIn::Bye,
-        };
-        Ok(request)
+        Ok(match code {
+            RequestCode::StoreList => RequestIn::StoreList(),
+            RequestCode::StoreCreate => RequestIn::StoreCreate(
+                StoreId::recv(stream)?),
+            RequestCode::StoreDestroy => RequestIn::StoreDestroy(
+                StoreId::recv(stream)?),
+            RequestCode::BlobHash => RequestIn::BlobHash(
+                BlobStream::recv(stream)?),
+            RequestCode::BlobList => RequestIn::BlobList(
+                StoreId::recv(stream)?),
+            RequestCode::BlobInfo => RequestIn::BlobInfo(
+                StoreId::recv(stream)?, BlobId::recv(stream)?),
+            RequestCode::BlobLoad => RequestIn::BlobLoad(
+                StoreId::recv(stream)?, BlobId::recv(stream)?),
+            RequestCode::BlobSave => RequestIn::BlobSave(
+                StoreId::recv(stream)?, BlobStream::recv(stream)?),
+            RequestCode::BlobDelete => RequestIn::BlobDelete(
+                StoreId::recv(stream)?, BlobId::recv(stream)?),
+            RequestCode::Bye => RequestIn::Bye,
+        })
     }
 }
 
@@ -255,43 +247,39 @@ impl<'a> ResponseIn<'a> {
     pub fn recv(stream: &'a mut impl Read, request_context: RequestOut)
             -> Result<Self> {
         let status = Status::recv(stream)?;
-        let response = match (status, request_context) {
-            (Status::Okay, RequestOut::StoreList(..)) =>
-                ResponseIn::StoreList(StoreIds::recv(stream)?),
-            (Status::Okay, RequestOut::BlobHash(..)) =>
-                ResponseIn::BlobHash(BlobId::recv(stream)?),
-            (Status::Okay, RequestOut::BlobList(..)) =>
-                ResponseIn::BlobList(BlobIds::recv(stream)?),
-            (Status::Okay, RequestOut::BlobInfo(..)) =>
-                ResponseIn::BlobInfo(BlobSize::recv(stream)?),
-            (Status::Okay, RequestOut::BlobLoad(..)) =>
-                ResponseIn::BlobLoad(BlobStream::recv(stream)?),
-            (Status::Okay, RequestOut::BlobSave(..)) =>
-                ResponseIn::BlobSave((SaveStatus::Created,
-                                      BlobId::recv(stream)?)),
-            (Status::AlreadyExists, RequestOut::BlobSave(..)) =>
-                ResponseIn::BlobSave((SaveStatus::AlreadyExists,
-                                       BlobId::recv(stream)?)),
-            (status, _) =>
-                ResponseIn::Status(status),
-        };
-        Ok(response)
+        Ok(match (status, request_context) {
+            (Status::Okay, RequestOut::StoreList(..)) => ResponseIn::StoreList(
+                StoreIds::recv(stream)?),
+            (Status::Okay, RequestOut::BlobHash(..)) => ResponseIn::BlobHash(
+                BlobId::recv(stream)?),
+            (Status::Okay, RequestOut::BlobList(..)) => ResponseIn::BlobList(
+                BlobIds::recv(stream)?),
+            (Status::Okay, RequestOut::BlobInfo(..)) => ResponseIn::BlobInfo(
+                BlobSize::recv(stream)?),
+            (Status::Okay, RequestOut::BlobLoad(..)) => ResponseIn::BlobLoad(
+                BlobStream::recv(stream)?),
+            (Status::Okay, RequestOut::BlobSave(..)) => ResponseIn::BlobSave(
+                (SaveStatus::Created, BlobId::recv(stream)?)),
+            (Status::Exists, RequestOut::BlobSave(..)) => ResponseIn::BlobSave(
+                (SaveStatus::Exists, BlobId::recv(stream)?)),
+            (status, _) => ResponseIn::Status(status),
+        })
     }
 }
 
 impl Recv for StoreId {
     fn recv(stream: &mut impl Read) -> Result<Self> {
-        let size = u16::recv(stream)?;
+        let size = StoreIdSize::recv(stream)?;
         let store_id_bytes = bytes_recv(stream, size.into())?;
-        let store_id = log_ret_err!(str::from_utf8(&store_id_bytes));
+        let store_id = log_err!(?str::from_utf8(&store_id_bytes));
         Ok(store_id.into())
     }
 }
 
 impl Recv for StoreIds {
     fn recv(stream: &mut impl Read) -> Result<Self> {
-        let num_elems_u64 = u64::recv(stream)?;
-        let num_elems = log_ret_err!(usize::try_from(num_elems_u64));
+        let array_size = ArraySize::recv(stream)?;
+        let num_elems = log_err!(?usize::try_from(array_size));
         iter::repeat_with(|| StoreId::recv(stream)).take(num_elems).collect()
     }
 }
@@ -305,8 +293,8 @@ impl Recv for BlobId {
 
 impl Recv for BlobIds {
     fn recv(stream: &mut impl Read) -> Result<Self> {
-        let num_elems_u64 = u64::recv(stream)?;
-        let num_elems = log_ret_err!(usize::try_from(num_elems_u64));
+        let array_size = ArraySize::recv(stream)?;
+        let num_elems = log_err!(?usize::try_from(array_size));
         let size = num_elems * size_of::<BlobId>();
         let buffer = bytes_recv(stream, size)?;
         let blob_ids = buffer.into_iter().array_chunks().map(BlobId).collect();
@@ -316,8 +304,8 @@ impl Recv for BlobIds {
 
 impl<'a> BlobStream<'a> {
     fn recv(stream: &'a mut impl Read) -> Result<Self> {
-        let size_u64 = u64::recv(stream)?;
-        let size = log_ret_err!(usize::try_from(size_u64));
+        let blob_size = BlobSize::recv(stream)?;
+        let size = log_err!(?usize::try_from(blob_size));
         Ok(Self {
             bytes_remain: size,
             stream: stream,
@@ -333,8 +321,8 @@ impl<'a> BlobStream<'a> {
 
 impl<'a> Read for BlobStream<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let size = buf.len();
-        let bytes_read = self.stream.read(&mut buf[..min(self.bytes_remain, size)])?;
+        let bytes_goal = min(self.bytes_remain, buf.len());
+        let bytes_read = self.stream.read(&mut buf[..bytes_goal])?;
         self.bytes_remain -= bytes_read;
         Ok(bytes_read)
     }
@@ -342,7 +330,11 @@ impl<'a> Read for BlobStream<'a> {
 
 impl Drop for BlobStream<'_> {
     fn drop(&mut self) {
-        _ = io::copy(self, &mut io::sink());
+        let result = io::copy(self, &mut io::sink());
+        if let Err(error) = result {
+            eprintln!("BlobStream::drop: failed to drain {} remaining bytes: \
+                       {error:?}: {error}", self.bytes_remain);
+        }
     }
 }
 
@@ -350,7 +342,7 @@ macro_rules! impl_recv_for_enum{($($Enum: ty), +) => {$(
     impl Recv for $Enum {
         fn recv(stream: &mut impl Read) -> Result<Self> {
             let val = Recv::recv(stream)?;
-            let enumerant = log_ret_err!(Self::try_from_primitive(val));
+            let enumerant = log_err!(?Self::try_from_primitive(val));
             Ok(enumerant)
         }
     }
@@ -370,13 +362,13 @@ impl_recv_for_num!(u16, u64);
 impl<const SIZE: usize> Recv for [u8; SIZE] {
     fn recv(stream: &mut impl Read) -> Result<Self> {
         let mut bytes = [0u8; SIZE];
-        log_ret_err!(stream.read_exact(&mut bytes));
+        log_err!(?stream.read_exact(&mut bytes));
         Ok(bytes)
     }
 }
 
 fn bytes_recv(stream: &mut impl Read, size: usize) -> Result<Box<[u8]>> {
     let mut bytes = unsafe {Box::new_uninit_slice(size).assume_init()};
-    log_ret_err!(stream.read_exact(&mut bytes));
+    log_err!(?stream.read_exact(&mut bytes));
     Ok(bytes)
 }

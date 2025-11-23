@@ -1,7 +1,7 @@
 use std::net::{TcpStream, ToSocketAddrs};
 use std::fmt::{self, Debug};
 
-use crate::{log_ret_err, log_err_ret_val, log_err, log_call};
+use crate::{log_call, log_err};
 use crate::types::{StoreIds, BlobId, BlobIdRef, BlobIds, BlobStream, BlobSize,
                    RequestOut, ResponseIn, Result, Status, SaveStatus};
 use crate::send_recv::{send_open_door, recv_welcome, Send};
@@ -30,17 +30,17 @@ pub struct Client {
 
 impl Debug for Client {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        let stream = &self.stream;
         write!(out, "Client({} => {})",
-                    format_addr(stream.local_addr()),
-                    format_addr(stream.peer_addr()))
+                    format_addr(self.stream.local_addr()),
+                    format_addr(self.stream.peer_addr()))
     }
 }
 
 impl Drop for Client {
     log_call!(
     fn drop(&mut self) {
-        if let Err(status) = RequestOut::Bye.send(&mut self.stream) {
+        let result = RequestOut::Bye.send(&mut self.stream);
+        if let Err(status) = result {
             eprintln!("Client::drop: failed to send Bye: {status:?}");
         }
     });
@@ -49,7 +49,7 @@ impl Drop for Client {
 impl Client {
     log_call!(
     pub fn connect(address: impl ToSocketAddrs + Debug) -> Result<Self> {
-        let stream = log_ret_err!(TcpStream::connect(address));
+        let stream = log_err!(?TcpStream::connect(address));
         let mut client = Client{stream};
         client.shake_hands()?;
         Ok(client)
@@ -98,7 +98,7 @@ impl Client {
 
     log_call!({named_inner=blob_load_inner}
     pub fn blob_load<'a>(&'a mut self, store_id: impl AsRef<str> + Debug,
-                                blob_id: BlobIdRef)
+                                       blob_id: BlobIdRef)
             -> Result<BlobStream<'a>> {
         send_req_recv_val!(self, BlobLoad(store_id.as_ref(), blob_id))
     });
