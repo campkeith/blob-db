@@ -64,8 +64,8 @@ pub enum Status {
     Okay = code8(b"okaydoke"),
     Exists = code8(b"itexists"),
     NotFound = code8(b"notfound"),
-    BadArgument = code8(b"invalarg"),
     NoSpace = code8(b"no-space"),
+    BadArgument = code8(b"invalarg"),
     InternalError = code8(b"internal"),
 }
 

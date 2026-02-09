@@ -13,4 +13,3 @@ rand = "0.9.2"
 sha2 = "0.10.9"
 memmap2 = "0.9.9"
 renamore = "0.3.2"
-clap = {version = "4.5.51", features = ["derive"]}

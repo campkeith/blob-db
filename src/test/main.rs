@@ -1,13 +1,11 @@
+#![feature(slice_as_array)]
+
+use std::env;
 use std::hash::Hash;
 use std::collections::{HashSet, HashMap};
 
-use rand;
-use rand::Rng;
-use rand::rngs::ThreadRng;
-use rand::prelude::IteratorRandom;
-use rand::distr::Distribution;
-use rand::distr::weighted::WeightedIndex;
-use clap::Parser;
+use rand::{self, Rng, rngs::ThreadRng, prelude::IteratorRandom};
+use rand::distr::{Distribution, weighted::WeightedIndex};
 
 mod fake;
 use blob_db::funcs;
@@ -15,20 +13,37 @@ use blob_db::types::{StoreId, BlobId, BlobSize, Status, SaveStatus, Result};
 use blob_db::client::Client;
 
 
-#[derive(Parser)]
-struct Args {
-    address: Box<str>,
-    iterations: u64,
-}
-
 fn main() -> Result<()> {
-    let args = Args::parse();
+    let args = parse_args()?;
     let mut rig = TestRig{
-        client: Client::connect(args.address.as_ref())?,
+        client: Client::connect(args.address)?,
         db: HashMap::new(),
         rng: rand::rng(),
     };
     rig.go(args.iterations)
+}
+
+struct Args {
+    address: String,
+    iterations: u64,
+}
+
+fn parse_args() -> Result<Args> {
+    fn core(arg_list: Box<[String]>) -> Option<Args> {
+        let [address, iterations_str] = *arg_list.into_array()?;
+        Some(Args{
+            address,
+            iterations: iterations_str.parse().ok()?,
+        })
+    }
+
+    let mut args = env::args();
+    let program = args.next().expect("env::args() has no elements");
+    let arg_list: Box<[String]> = args.collect();
+    core(arg_list).ok_or_else(|| {
+        eprintln!("Usage: {program} <host-address>:<port> <iterations>");
+        Status::BadArgument
+    })
 }
 
 struct TestRig {

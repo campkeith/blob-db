@@ -1,10 +1,8 @@
-use std::cmp;
-use std::fmt::Debug;
+use std::cmp::min;
 use std::ascii::escape_default;
-use std::fmt::{self, Formatter};
+use std::fmt::{self, Debug, Formatter};
 
-use rand::Rng;
-use rand::distr::{Alphanumeric, SampleString, Uniform};
+use rand::{Rng, distr::{Alphanumeric, SampleString, Uniform}};
 
 use blob_db::types::{StoreId, BlobId};
 
@@ -31,7 +29,7 @@ pub fn size_geometric(rng: &mut impl Rng, max_size: usize) -> usize {
     let max_f64 = (max_size + 1) as f64;
     let dist = Uniform::new(0f64, max_f64.ln()).unwrap();
     let log_val = rng.sample(dist);
-    cmp::min(log_val.exp() as usize, max_size)
+    min(log_val.exp() as usize, max_size)
 }
 
 

@@ -30,8 +30,9 @@ impl fmt::Debug for Persister {
 
 macro_rules! error_to_status{($error:expr) => {
     match $error.kind() {
-        ErrorKind::NotFound => Status::NotFound,
         ErrorKind::AlreadyExists => Status::Exists,
+        ErrorKind::NotFound => Status::NotFound,
+        ErrorKind::StorageFull => Status::NoSpace,
         _ => log_err!(map($error)),
     }
 }}
@@ -70,6 +71,7 @@ impl Persister {
         let result = fs::create_dir(self.store_path(store_id));
         result.map_err(|error| match error.kind() {
             ErrorKind::AlreadyExists => Status::Exists,
+            ErrorKind::StorageFull => Status::NoSpace,
             _ => log_err!(map(error)),
         })
     });
@@ -174,7 +176,10 @@ struct TmpFile {
 
 impl TmpFile {
     fn create(path: Box<Path>, size: usize) -> Result<Self> {
-        let file = log_err!(?o_rw_excl().open(&path));
+        let file = o_rw_excl().open(&path).map_err(|error| match error.kind() {
+            ErrorKind::StorageFull => Status::NoSpace,
+            _ => log_err!(map(error)),
+        })?;
         let size_u64 = log_err!(?u64::try_from(size));
         log_err!(?file.set_len(size_u64));
         Ok(Self{file, tmp_path: Some(path)})
