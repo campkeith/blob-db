@@ -1,6 +1,5 @@
 const std = @import("std");
 
-
 const Request = union(enum) {
     store_list,
     store_create: StoreId,
@@ -8,10 +7,10 @@ const Request = union(enum) {
     blob_hash: Blob,
 
     blob_list: StoreId,
-    blob_info: struct {store_id: StoreId, blob_id: BlobId},
-    blob_load: struct {store_id: StoreId, blob_id: BlobId},
-    blob_save: struct {store_id: StoreId, blob: Blob},
-    blob_delete: struct {store_id: StoreId, blob_id: BlobId},
+    blob_info: struct { store_id: StoreId, blob_id: BlobId },
+    blob_load: struct { store_id: StoreId, blob_id: BlobId },
+    blob_save: struct { store_id: StoreId, blob: Blob },
+    blob_delete: struct { store_id: StoreId, blob_id: BlobId },
 
     bye,
 };
@@ -23,7 +22,7 @@ const Response = union(enum) {
     blob_list: BlobIds,
     blob_info: BlobSize,
     blob_load: BlobFile,
-    blob_save: struct {status: SaveStatus, blob_id: BlobId},
+    blob_save: struct { status: SaveStatus, blob_id: BlobId },
 };
 
 const Status = enum(Code) {
@@ -40,6 +39,14 @@ const SaveStatus = enum(Code) {
     exists = Status.exists,
 };
 
+const Err = error{
+    Exists,
+    NotFound,
+    NoSpace,
+    BadArgument,
+    Internal,
+};
+
 const StoreId = []u8;
 const StoreIds = []StoreId;
 const BlobId = [32]u8;
@@ -54,7 +61,6 @@ const BlobStream = struct {
 
 const Code = u64;
 const BlobSize = u64;
-
 
 fn code(comptime bytes: [8]u8) Code {
     return std.mem.readInt(u64, bytes, .little);
