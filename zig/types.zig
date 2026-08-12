@@ -15,7 +15,17 @@ const Request = union(enum) {
     bye,
 };
 
-const Response = union(enum) {
+const ResponseTag = enum {
+    status,
+    store_list,
+    blob_hash,
+    blob_list,
+    blob_info,
+    blob_load,
+    blob_save,
+};
+
+const Response = union(ResponseTag) {
     status: Status,
     store_list: StoreIds,
     blob_hash: BlobId,
@@ -61,6 +71,9 @@ const BlobStream = struct {
 
 const Code = u64;
 const BlobSize = u64;
+
+const Reader = std.io.Reader;
+const Writer = std.io.Writer;
 
 fn code(comptime bytes: [8]u8) Code {
     return std.mem.readInt(u64, bytes, .little);
