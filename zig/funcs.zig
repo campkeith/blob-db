@@ -3,8 +3,6 @@ const std = @import("std");
 const ty = @import("types.zig");
 
 pub const allocator = std.heap.page_allocator;
-pub const alloc = allocator.alloc;
-pub const free = allocator.free;
 pub const debug = std.debug.print;
 
 const CHUNK_SIZE: usize = 64 * 1024;
@@ -17,23 +15,19 @@ pub fn getEnv(env: *ty.EnvMap, name: []const u8) ty.Err![]const u8 {
     };
 }
 
-pub fn hashBlob(blob: ty.Blob) ty.BlobId {
-    var blob_id: ty.BlobId = undefined;
-    Hasher.hash(blob, &blob_id, .{});
-    return blob_id;
-}
-
-pub fn hashStream(input: ty.Reader) !ty.BlobId {
+pub fn hashBlob(blob: *ty.BlobStream) !ty.BlobId {
     var hasher = Hasher.init(.{});
-    var chunk = allocator.alloc(u8, CHUNK_SIZE);
+    var chunk = try allocator.alloc(u8, CHUNK_SIZE);
     defer allocator.free(chunk);
-    while (try input.readSliceShort(chunk)) |size| {
-        hasher.update(chunk[0..size]);
+    while (blob.bytes_remain > 0) {
+        const slice = chunk[0 .. @min(blob.bytes_remain, CHUNK_SIZE)];
+        try blob.stream.readSliceAll(slice);
+        hasher.update(slice);
     }
     return hasher.finalResult();
 }
 
-pub fn hashCopyStream(input: *ty.Reader, output: []u8) !ty.BlobId {
+pub fn hashCopyBlob(input: *ty.Reader, output: []u8) !ty.BlobId {
     var hasher = Hasher.init(.{});
     var index: usize = 0;
     while (index < output.len) : (index += CHUNK_SIZE) {
