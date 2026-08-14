@@ -1,7 +1,7 @@
 const std = @import("std");
-const allocator = std.heap.page_allocator;
 
 const ty = @import("types.zig");
+const funcs = @import("funcs.zig");
 
 const ProtoVersion = u16;
 const StoreIdSize = u16;
@@ -121,7 +121,7 @@ fn send(stream: ty.Writer, obj: anytype) !void {
 }
 
 fn send_array(stream: ty.Writer, array: anytype) !void {
-    const ElemType = std.meta.Child(@TypeOf(array));
+    const ElemType = meta.Child(@TypeOf(array));
     return stream.writeSliceEndian(ElemType, array, .little);
 }
 
@@ -171,7 +171,7 @@ fn recv_response(stream: ty.Reader, request_context: ty.Request) !ty.Response {
 
 fn recv_store_ids(stream: ty.Reader) !ty.StoreIds {
     const array_size = try recv(stream, ArraySize);
-    const store_ids = allocator.alloc(ty.StoreId, array_size);
+    const store_ids = funcs.alloc(ty.StoreId, array_size);
     for (&store_ids) |*store_id| {
         store_id.* = try recv_store_id(stream);
     }
@@ -180,14 +180,14 @@ fn recv_store_ids(stream: ty.Reader) !ty.StoreIds {
 
 fn recv_store_id(stream: ty.Reader) !ty.StoreId {
     const size = try recv(stream, StoreIdSize);
-    const store_id = allocator.alloc(u8, size);
+    const store_id = funcs.alloc(u8, size);
     try recv_array(stream, store_id);
     return store_id;
 }
 
 fn recv_blob_ids(stream: ty.Reader) !ty.BlobIds {
     const array_size = try recv(stream, ArraySize);
-    const blob_ids = allocator.alloc(ty.BlobId, array_size);
+    const blob_ids = funcs.alloc(ty.BlobId, array_size);
     for (&blob_ids) |*blob_id| {
         blob_id.* = try recv(stream, ty.BlobId);
     }
@@ -196,7 +196,7 @@ fn recv_blob_ids(stream: ty.Reader) !ty.BlobIds {
 
 fn recv_blob(stream: ty.Reader) !ty.Blob {
     const array_size = try recv(stream, ArraySize);
-    const blob = allocator.alloc(u8, array_size);
+    const blob = funcs.alloc(u8, array_size);
     try recv_array(stream, blob);
     return blob;
 }

@@ -1,6 +1,14 @@
 const std = @import("std");
 
-const Request = union(enum) {
+pub const Init = std.process.Init;
+pub const EnvMap = std.process.Environ.Map;
+pub const Io = std.Io;
+pub const Dir = Io.Dir;
+pub const File = Io.File;
+pub const Reader = Io.Reader;
+pub const Writer = Io.Writer;
+
+pub const Request = union(enum) {
     store_list,
     store_create: StoreId,
     store_destroy: StoreId,
@@ -15,7 +23,7 @@ const Request = union(enum) {
     bye,
 };
 
-const ResponseTag = enum {
+pub const ResponseTag = enum {
     status,
     store_list,
     blob_hash,
@@ -25,7 +33,7 @@ const ResponseTag = enum {
     blob_save,
 };
 
-const Response = union(ResponseTag) {
+pub const Response = union(ResponseTag) {
     status: Status,
     store_list: StoreIds,
     blob_hash: BlobId,
@@ -35,7 +43,7 @@ const Response = union(ResponseTag) {
     blob_save: struct { status: SaveStatus, blob_id: BlobId },
 };
 
-const Status = enum(Code) {
+pub const Status = enum(Code) {
     okay = code("okeydoke"),
     exists = code("itexists"),
     not_found = code("notfound"),
@@ -44,12 +52,12 @@ const Status = enum(Code) {
     internal_error = code("internal"),
 };
 
-const SaveStatus = enum(Code) {
-    created = Status.okay,
-    exists = Status.exists,
+pub const SaveStatus = enum(Code) {
+    created = @intFromEnum(Status.okay),
+    exists = @intFromEnum(Status.exists),
 };
 
-const Err = error{
+pub const Err = error{
     Exists,
     NotFound,
     NoSpace,
@@ -57,24 +65,21 @@ const Err = error{
     Internal,
 };
 
-const StoreId = []u8;
-const StoreIds = []StoreId;
-const BlobId = [32]u8;
-const BlobIdStr = [64]u8;
-const BlobIds = []BlobId;
-const Blob = []u8;
-const BlobFile = std.Io.File;
-const BlobStream = struct {
+pub const StoreId = []const u8;
+pub const StoreIds = []StoreId;
+pub const BlobId = [32]u8;
+pub const BlobIdStr = [64]u8;
+pub const BlobIds = []BlobId;
+pub const Blob = []u8;
+pub const BlobFile = File;
+pub const BlobStream = struct {
     bytes_remain: usize,
-    stream: std.Io.Reader,
+    stream: Reader,
 };
 
-const Code = u64;
-const BlobSize = u64;
+pub const Code = u64;
+pub const BlobSize = u64;
 
-const Reader = std.io.Reader;
-const Writer = std.io.Writer;
-
-fn code(comptime bytes: [8]u8) Code {
+fn code(comptime bytes: *const[8]u8) Code {
     return std.mem.readInt(u64, bytes, .little);
 }

@@ -2,24 +2,28 @@ const std = @import("std");
 
 const ty = @import("types.zig");
 
+pub const allocator = std.heap.page_allocator;
+pub const alloc = allocator.alloc;
+pub const free = allocator.free;
+pub const debug = std.debug.print;
+
 const CHUNK_SIZE: usize = 64 * 1024;
-const allocator = std.heap.page_allocator;
 const Hasher = std.crypto.hash.sha2.Sha256;
 
-fn envGet(env: std.process.EnvMap, name: []const u8) ty.Err![]const u8 {
+pub fn getEnv(env: *ty.EnvMap, name: []const u8) ty.Err![]const u8 {
     return env.get(name) orelse {
-        std.debug.print("Missing required environment variable: {s}", .{name});
-        return ty.Err.internal;
+        debug("Missing required environment variable: {s}\n", .{name});
+        return ty.Err.Internal;
     };
 }
 
-fn blobHash(blob: ty.Blob) ty.BlobId {
+pub fn hashBlob(blob: ty.Blob) ty.BlobId {
     var blob_id: ty.BlobId = undefined;
     Hasher.hash(blob, &blob_id, .{});
     return blob_id;
 }
 
-fn streamHash(input: ty.Reader) !ty.BlobId {
+pub fn hashStream(input: ty.Reader) !ty.BlobId {
     var hasher = Hasher.init(.{});
     var chunk = allocator.alloc(u8, CHUNK_SIZE);
     defer allocator.free(chunk);
@@ -29,62 +33,76 @@ fn streamHash(input: ty.Reader) !ty.BlobId {
     return hasher.finalResult();
 }
 
-fn streamHashCopy(input: ty.Reader, output: []u8) !ty.BlobId {
+pub fn hashCopyStream(input: *ty.Reader, output: []u8) !ty.BlobId {
     var hasher = Hasher.init(.{});
     var index: usize = 0;
     while (index < output.len) : (index += CHUNK_SIZE) {
         const chunk = output[index .. @min(index + CHUNK_SIZE, output.len)];
-        try input.readSliceExact(chunk);
+        try input.readSliceAll(chunk);
         hasher.update(chunk);
     }
     return hasher.finalResult();
 }
 
-fn hashToStr(hash: ty.BlobId) ty.BlobIdStr {
+pub fn hashBytesToHex(hash: ty.BlobId) ty.BlobIdStr {
     var string: ty.BlobIdStr = undefined;
     for (hash, 0..) |byte, index| {
-        @memcpy(sliceChunk(&string, index, 2), byte_to_hex(byte));
+        @memcpy(string[2 * index .. 2 * (index + 1)], &byteToHex(byte));
+        //@memcpy(sliceChunk(2, string, index), &byteToHex(byte));
     }
     return string;
 }
 
 fn byteToHex(byte: u8) [2]u8 {
-    return .{ nibbleToHexDigit(byte >> 4), nibbleToHexDigit(byte & 0xf) };
+    const pair: NibblePair = @bitCast(byte);
+    return .{ nibbleToHexDigit(pair.hi), nibbleToHexDigit(pair.lo) };
 }
 
 fn nibbleToHexDigit(nibble: u4) u8 {
     return switch (nibble) {
-        0x0...0x9 => nibble + '0',
-        0xa...0xf => nibble - 0xa + 'a',
+        0x0...0x9 => @as(u8, nibble) + '0',
+        0xa...0xf => @as(u8, nibble) - 0xa + 'a',
     };
 }
 
-fn strToHash(string: ty.BlobIdStr) ty.Err!ty.BlobId {
+pub fn hashHexToBytes(string: []const u8) ty.Err!ty.BlobId {
+    if (string.len != 64) {
+        debug("hashHexToBytes: invalid length string: '{s}'\n", .{string});
+        return ty.Err.Internal;
+    }
     var hash: ty.BlobId = undefined;
     for (&hash, 0..) |*byte, index| {
-        byte.* = try hexToByte(sliceChunk(string, index, 2));
+        const slice = string[2 * index .. 2 * (index + 1)];
+        byte.* = try hexToByte(@ptrCast(slice));
     }
     return hash;
 }
 
-fn hexToByte(hex_pair: [2]u8) ty.Err!u8 {
-    const hi, const lo = hex_pair;
-    return try hexDigitToNibble(hi) << 4 | try hexDigitToNibble(lo);
+fn hexToByte(hex_pair: *const[2]u8) ty.Err!u8 {
+    const hi, const lo = hex_pair.*;
+    const nibbles: NibblePair = .{.hi = try hexDigitToNibble(hi),
+                                  .lo = try hexDigitToNibble(lo)};
+    return @bitCast(nibbles);
 }
 
 fn hexDigitToNibble(digit: u8) ty.Err!u4 {
     return switch (digit) {
-        '0'...'9' => digit - '0',
-        'a'...'f' => digit - 'a' + 0xa,
+        '0'...'9' => @intCast(digit - '0'),
+        'a'...'f' => @intCast(digit - 'a' + 0xa),
         else => {
-            std.debug.print("hex_digit_to_nibble: invalid hex digit: '{c}'",
-                            .{digit});
-            return ty.Err.internal;
+            debug("hexDigitToNibble: " ++
+                  "invalid hex digit: '{c}'\n", .{digit});
+            return ty.Err.Internal;
         },
     };
 }
 
-fn sliceChunk(slice: anytype, chunk_num: usize, chunk_size: usize)
+const NibblePair = packed struct(u8) {
+    lo: u4,
+    hi: u4,
+};
+
+fn sliceChunk(comptime chunk_size: usize, slice: anytype, chunk_num: usize)
         []std.meta.Child(@TypeOf(slice)) {
     return slice[chunk_size * chunk_num .. chunk_size * (chunk_num + 1)];
 }
