@@ -100,3 +100,16 @@ fn sliceChunk(comptime chunk_size: usize, slice: anytype, chunk_num: usize)
         []std.meta.Child(@TypeOf(slice)) {
     return slice[chunk_size * chunk_num .. chunk_size * (chunk_num + 1)];
 }
+
+fn pair_gen(A: type, B: type) type {
+    const PairStruct = packed struct {
+        a: A,
+        b: B,
+    };
+    const Pair = struct {
+        fn make(a: A, b: B) PairStruct {
+            return .{.a = a, .b = b};
+        }
+    };
+    return Pair;
+}
