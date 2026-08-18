@@ -26,7 +26,7 @@ pub const Request = union(enum) {
         store_list,
         store_create: StoreId,
         store_destroy: StoreId,
-        blob_hash: BlobStream,
+        blob_hash: *BlobStream,
 
         blob_list: StoreId,
         blob_info: StoreIdBlobId,
@@ -42,7 +42,7 @@ pub const Request = union(enum) {
 
     pub const StoreIdBlob = struct {
         store_id: StoreId,
-        blob: BlobStream,
+        blob: *BlobStream,
     };
 };
 

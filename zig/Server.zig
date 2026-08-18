@@ -120,7 +120,7 @@ fn process_call_request(self: *Self, call: *ty.Request.Call) !ty.Response.Call {
         .store_destroy => |store_id| .{.store_destroy =
             try self.inner.store_destroy(store_id)},
         .blob_hash => |*blob| .{.blob_hash =
-            try funcs.hashBlob(blob)},
+            try funcs.hashBlobStream(blob)},
         .blob_list => |store_id| .{.blob_list =
             try self.inner.blob_list(store_id)},
         .blob_info => |args| .{.blob_info =

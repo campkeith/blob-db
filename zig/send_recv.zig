@@ -175,22 +175,17 @@ pub fn recv_open_door(stream: *Reader) !void {
 }
 
 pub fn recv_welcome(stream: *Reader) !void {
-    const code = recv(stream, ty.Code);
+    const code = try recv(stream, GreetCode);
     switch (code) {
-        GreetCode.Welcome => {
+        .welcome => {
             return;
         },
-        GreetCode.NotWelcome => {
-            const proto_version = recv(stream, ProtoVersion);
+        .not_welcome => {
+            const proto_version = try recv(stream, ProtoVersion);
             funcs.debug("recv_welcome: server says we are not welcome; "
                         ++ "client: v{d}, server: v{d}",
                         .{PROTO_VERSION, proto_version});
             return ty.Err.BadArgument;
-        },
-        else => {
-            funcs.debug("recv_welcome: unexpected response: {s}",
-                        .{ty.decode8(code)});
-            return ty.Err.InternalError;
         },
     }
 }
@@ -229,7 +224,7 @@ fn recv_call_request(stream: *Reader, call_tag: CallTag) !Request.Call {
 
 pub fn recv_response(stream: *Reader, call_tag: CallTag) !Response {
     const status = try recv(stream, Status);
-    const Pair = funcs.pair_gen(@TypeOf(status), @TypeOf(call_tag));
+    const Pair = funcs.pairGen(@TypeOf(status), @TypeOf(call_tag));
     return switch (Pair.make(status, call_tag)) {
         Pair.make(.okay, .store_list) =>
             .{.call = .{.store_list = try recv(stream, ty.StoreIds)}},
@@ -341,7 +336,11 @@ fn recv_enum(stream: *Reader, Enum: type) !Enum {
 }
 
 fn parse_enum_tag(Enum: type, tag: anytype) !Enum {
-    return if (std.enums.fromInt(Enum, tag)) |val| val else ty.Err.BadArgument;
+    return if (std.enums.fromInt(Enum, tag)) |val| val else {
+        funcs.debug("parse_enum_tag: {s} is not a {s} value.",
+                    .{@typeName(Enum), ty.decode8(tag)});
+        return ty.Err.BadArgument;
+    };
 }
 
 fn recv_tuple(stream: *Reader, comptime Tuple: anytype) !Tuple {

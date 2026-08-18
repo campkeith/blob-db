@@ -15,7 +15,13 @@ pub fn getEnv(env: *ty.EnvMap, name: []const u8) ty.Err![]const u8 {
     };
 }
 
-pub fn hashBlob(blob: *ty.BlobStream) !ty.BlobId {
+pub fn hashBlob(blob: []u8) ty.BlobId {
+    var out: ty.BlobId = undefined;
+    Hasher.hash(blob, &out, .{});
+    return out;
+}
+
+pub fn hashBlobStream(blob: *ty.BlobStream) !ty.BlobId {
     var hasher = Hasher.init(.{});
     var chunk = try allocator.alloc(u8, CHUNK_SIZE);
     defer allocator.free(chunk);
@@ -101,13 +107,13 @@ fn sliceChunk(comptime chunk_size: usize, slice: anytype, chunk_num: usize)
     return slice[chunk_size * chunk_num .. chunk_size * (chunk_num + 1)];
 }
 
-fn pair_gen(A: type, B: type) type {
+pub fn pairGen(A: type, B: type) type {
     const PairStruct = packed struct {
         a: A,
         b: B,
     };
     const Pair = struct {
-        fn make(a: A, b: B) PairStruct {
+        pub fn make(a: A, b: B) PairStruct {
             return .{.a = a, .b = b};
         }
     };
