@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const ty = @import("blob-db/types.zig");
+const mem = @import("blob-db/mem.zig");
 const funcs = @import("blob-db/funcs.zig");
 
 pub const StoreId = []u8;
@@ -9,7 +10,7 @@ pub const Blob = []u8;
 pub fn store_id(rng: *std.Random, max_size: usize) !ty.StoreId {
     const size = size_geometric(rng, max_size);
     const alphabet = std.fs.base64_alphabet;
-    const id = try funcs.allocator.alloc(u8, size);
+    const id = try mem.alloc(u8, size);
     for (id) |*char| {
         const index = rng.uintLessThan(usize, alphabet.len);
         char.* = alphabet[index];
@@ -25,8 +26,8 @@ pub fn blob_id(rng: *std.Random) ty.BlobId {
 
 pub fn blob(rng: *std.Random, max_size: usize) !Blob {
     const size = size_geometric(rng, max_size);
-    const out = try funcs.allocator.alloc(u8, size);
-    errdefer funcs.allocator.free(out);
+    const out = try mem.alloc(u8, size);
+    errdefer mem.free(out);
     rng.bytes(out);
     return out;
 }

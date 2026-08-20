@@ -1,16 +1,17 @@
 const std = @import("std");
-const IpAddress = std.Io.net.IpAddress;
 const Stream = std.Io.net.Stream;
+const IpAddress = std.Io.net.IpAddress;
 
-const send_recv = @import("send_recv.zig");
-const funcs = @import("funcs.zig");
 const ty = @import("types.zig");
 const Request = ty.Request;
 const Response = ty.Response;
 const StoreId = ty.StoreId;
 const BlobId = ty.BlobId;
-const BlobSize = ty.BlobSize;
-const BlobStream = ty.BlobStream;
+const Blob = ty.Blob;
+
+const mem = @import("mem.zig");
+const funcs = @import("funcs.zig");
+const send_recv = @import("send_recv.zig");
 
 const Self = @This();
 
@@ -28,12 +29,12 @@ pub fn connect(io: std.Io, address_str: []const u8) !Self {
     const stream = try address.connect(io, .{.mode = .stream});
     errdefer stream.close(io);
 
-    const read_buf = try funcs.allocator.alloc(u8, BUF_SIZE);
-    errdefer funcs.allocator.free(read_buf);
+    const read_buf = try mem.alloc(u8, BUF_SIZE);
+    errdefer mem.free(read_buf);
     const in = stream.reader(io, read_buf);
 
-    const write_buf = try funcs.allocator.alloc(u8, BUF_SIZE);
-    errdefer funcs.allocator.free(write_buf);
+    const write_buf = try mem.alloc(u8, BUF_SIZE);
+    errdefer mem.free(write_buf);
     const out = stream.writer(io, write_buf);
 
     var client: Self = .{
@@ -57,8 +58,8 @@ pub fn close(self: *Self) void {
     send_recv.send_request(&self.out.interface, .bye) catch |err| {
         funcs.debug("Client.close: failed to send 'bye' due to {}", .{err});
     };
-    funcs.allocator.free(self.read_buf);
-    funcs.allocator.free(self.write_buf);
+    mem.free(self.read_buf);
+    mem.free(self.write_buf);
     self.stream.close(self.io);
 }
 
@@ -74,7 +75,7 @@ pub fn store_destroy(self: *Self, store_id: StoreId) !void {
     return try self.send_call_recv_result(.store_destroy, store_id);
 }
 
-pub fn blob_hash(self: *Self, blob: *BlobStream) !ty.BlobId {
+pub fn blob_hash(self: *Self, blob: Blob) !ty.BlobId {
     return try self.send_call_recv_result(.blob_hash, blob);
 }
 
@@ -82,33 +83,33 @@ pub fn blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
     return try self.send_call_recv_result(.blob_list, store_id);
 }
 
-pub fn blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !BlobSize {
-    return try self.send_call_recv_result(.blob_info,
-        .{.store_id = store_id, .blob_id = blob_id});
+pub fn blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
+    return try self.send_call_recv_result(.blob_info, .init(store_id, blob_id));
 }
 
-pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !BlobStream {
-    return try self.send_call_recv_result(.blob_load,
-        .{.store_id = store_id, .blob_id = blob_id});
+pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
+    return try self.send_call_recv_result(.blob_load, .init(store_id, blob_id));
 }
 
-pub fn blob_save(self: *Self, store_id: StoreId, blob: *BlobStream)
+pub fn blob_save(self: *Self, store_id: StoreId, blob: Blob)
         !Response.SaveStatusBlobId  {
-    return try self.send_call_recv_result(.blob_save,
-        .{.store_id = store_id, .blob = blob});
+    return try self.send_call_recv_result(.blob_save, .init(store_id, blob));
 }
 
 pub fn blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
-    return try self.send_call_recv_result(.blob_delete,
-        .{.store_id = store_id, .blob_id = blob_id});
+    return try self.send_call_recv_result(.blob_delete, .init(store_id, blob_id));
 }
 
 fn send_call_recv_result(self: *Self, comptime call_tag: ty.CallTag,
         args: @FieldType(Request.Call, @tagName(call_tag)))
             !@FieldType(Response.Call, @tagName(call_tag)) {
-    const call = @unionInit(Request.Call, @tagName(call_tag), args);
-    try send_recv.send_request(&self.out.interface, .{.call = call});
-    const response = try send_recv.recv_response(&self.in.interface, call_tag);
+    var request = Request{
+        .call = @unionInit(Request.Call, @tagName(call_tag), args),
+    };
+    defer request.deinit();
+    try send_recv.send_request(&self.out.interface, request);
+    var response = try send_recv.recv_response(&self.in.interface, call_tag);
+    defer response.deinit();
     return switch (response) {
         .call => |result| @field(result, @tagName(call_tag)),
         .err => |err| err,

@@ -1,39 +1,49 @@
 const std = @import("std");
-
-const ty = @import("types.zig");
-
-pub const allocator = std.heap.page_allocator;
-pub const debug = std.debug.print;
-
-const CHUNK_SIZE: usize = 64 * 1024;
+const Environ = std.process.Environ;
 const Hasher = std.crypto.hash.sha2.Sha256;
 
-pub fn getEnv(env: *ty.EnvMap, name: []const u8) ty.Err![]const u8 {
-    return env.get(name) orelse {
+const ty = @import("types.zig");
+const mem = @import("mem.zig");
+
+const CHUNK_SIZE: usize = 64 * 1024;
+
+pub fn getEnv(env: *Environ.Map, name: []const u8) ty.Err![]const u8 {
+    return env.get(name) orelse out: {
         debug("Missing required environment variable: {s}\n", .{name});
-        return ty.Err.Internal;
+        break :out ty.Err.Internal;
     };
 }
 
-pub fn hashBlob(blob: []u8) ty.BlobId {
-    var out: ty.BlobId = undefined;
-    Hasher.hash(blob, &out, .{});
-    return out;
+pub fn debug(comptime format: []const u8, args: anytype) void {
+    std.debug.print(format, args);
 }
 
-pub fn hashBlobStream(blob: *ty.BlobStream) !ty.BlobId {
-    var hasher = Hasher.init(.{});
-    var chunk = try allocator.alloc(u8, CHUNK_SIZE);
-    defer allocator.free(chunk);
-    while (blob.bytes_remain > 0) {
-        const slice = chunk[0 .. @min(blob.bytes_remain, CHUNK_SIZE)];
-        try blob.stream.readSliceAll(slice);
-        hasher.update(slice);
-    }
-    return hasher.finalResult();
+pub fn hashBlob(blob: *ty.Blob) !ty.BlobId {
+    return switch (blob.*) {
+        .stream => |*in| out: {
+            var hasher = Hasher.init(.{});
+            var chunk = try mem.alloc(u8, CHUNK_SIZE);
+            defer mem.free(chunk);
+            while (in.bytes_left > 0) {
+                const slice = chunk[0 .. @min(in.bytes_left, CHUNK_SIZE)];
+                try in.reader.readSliceAll(slice);
+                hasher.update(slice);
+            }
+            break :out hasher.finalResult();
+        },
+        .file => |*file| out: {
+            const mmap_opts: std.Io.File.MemoryMap.CreateOptions = .{
+                .len = try file.file.length(file.io),
+            };
+            var mem_map = try file.file.createMemoryMap(file.io, mmap_opts);
+            defer mem_map.destroy(file.io);
+            break :out hashMemory(mem_map.memory);
+        },
+        .memory => |bytes| hashMemory(bytes),
+    };
 }
 
-pub fn hashCopyBlob(input: *ty.Reader, output: []u8) !ty.BlobId {
+pub fn hashCopyBlob(input: *std.Io.Reader, output: []u8) !ty.BlobId {
     var hasher = Hasher.init(.{});
     var index: usize = 0;
     while (index < output.len) : (index += CHUNK_SIZE) {
@@ -44,11 +54,16 @@ pub fn hashCopyBlob(input: *ty.Reader, output: []u8) !ty.BlobId {
     return hasher.finalResult();
 }
 
+pub fn hashMemory(blob: []u8) ty.BlobId {
+    var blob_id: ty.BlobId = undefined;
+    Hasher.hash(blob, &blob_id, .{});
+    return blob_id;
+}
+
 pub fn hashBytesToHex(hash: ty.BlobId) ty.BlobIdStr {
     var string: ty.BlobIdStr = undefined;
     for (hash, 0..) |byte, index| {
-        @memcpy(string[2 * index .. 2 * (index + 1)], &byteToHex(byte));
-        //@memcpy(sliceChunk(2, string, index), &byteToHex(byte));
+        @memcpy(sliceChunk(2, @as([]u8, &string), index), &byteToHex(byte));
     }
     return string;
 }
@@ -72,7 +87,7 @@ pub fn hashHexToBytes(string: []const u8) ty.Err!ty.BlobId {
     }
     var hash: ty.BlobId = undefined;
     for (&hash, 0..) |*byte, index| {
-        const slice = string[2 * index .. 2 * (index + 1)];
+        const slice = sliceChunk(2, string, index);
         byte.* = try hexToByte(@ptrCast(slice));
     }
     return hash;
@@ -89,10 +104,10 @@ fn hexDigitToNibble(digit: u8) ty.Err!u4 {
     return switch (digit) {
         '0'...'9' => @intCast(digit - '0'),
         'a'...'f' => @intCast(digit - 'a' + 0xa),
-        else => {
+        else => out: {
             debug("hexDigitToNibble: " ++
                   "invalid hex digit: '{c}'\n", .{digit});
-            return ty.Err.Internal;
+            break :out ty.Err.Internal;
         },
     };
 }
@@ -103,7 +118,7 @@ const NibblePair = packed struct(u8) {
 };
 
 fn sliceChunk(comptime chunk_size: usize, slice: anytype, chunk_num: usize)
-        []std.meta.Child(@TypeOf(slice)) {
+        @TypeOf(slice) {
     return slice[chunk_size * chunk_num .. chunk_size * (chunk_num + 1)];
 }
 

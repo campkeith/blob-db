@@ -7,6 +7,7 @@ const CallTag = ty.CallTag;
 const Request = ty.Request;
 const Response = ty.Response;
 
+const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
 
 const ReaderWriterError = Writer.Error || Reader.Error;
@@ -34,71 +35,71 @@ pub const Status = enum(ty.Code) {
     internal_error = ty.encode8("internal"),
 };
 
-pub fn send_open_door(stream: *Writer) !void {
-    try send_tuple(stream, .{CODE_OPEN_DOOR, PROTO_VERSION});
+pub fn send_open_door(out: *Writer) !void {
+    try send_tuple(out, .{CODE_OPEN_DOOR, PROTO_VERSION});
 }
 
-pub fn send_welcome(stream: *Writer) !void {
-    try send(stream, GreetCode.welcome);
+pub fn send_welcome(out: *Writer) !void {
+    try send(out, GreetCode.welcome);
 }
 
-pub fn send_not_welcome(stream: *Writer) !void {
-    try send_tuple(stream, .{GreetCode.not_welcome, PROTO_VERSION});
+pub fn send_not_welcome(out: *Writer) !void {
+    try send_tuple(out, .{GreetCode.not_welcome, PROTO_VERSION});
 }
 
-pub fn send_request(stream: *Writer, request: Request) !void {
+pub fn send_request(out: *Writer, request: Request) !void {
     try switch (request) {
-        .call => |call| send_call_request(stream, call),
-        .bye => send(stream, CODE_BYE),
+        .call => |call| send_call_request(out, call),
+        .bye => send(out, CODE_BYE),
     };
 }
 
-fn send_call_request(stream: *Writer, call: Request.Call) !void {
+fn send_call_request(out: *Writer, call: Request.Call) !void {
     try switch (call) {
         .store_list =>
-            send(stream, CallTag.store_list),
+            send(out, CallTag.store_list),
         .store_create => |store_id|
-            send_tuple(stream, .{CallTag.store_create, store_id}),
+            send_tuple(out, .{CallTag.store_create, store_id}),
         .store_destroy => |store_id|
-            send_tuple(stream, .{CallTag.store_destroy, store_id}),
+            send_tuple(out, .{CallTag.store_destroy, store_id}),
         .blob_hash => |blob|
-            send_tuple(stream, .{CallTag.blob_hash, blob}),
+            send_tuple(out, .{CallTag.blob_hash, blob}),
         .blob_list => |store_id|
-            send_tuple(stream, .{CallTag.blob_list, store_id}),
+            send_tuple(out, .{CallTag.blob_list, store_id}),
         .blob_info => |store_id, blob_id|
-            send_tuple(stream, .{CallTag.blob_info, store_id, blob_id}),
+            send_tuple(out, .{CallTag.blob_info, store_id, blob_id}),
         .blob_load => |store_id, blob_id|
-            send_tuple(stream, .{CallTag.blob_load, store_id, blob_id}),
+            send_tuple(out, .{CallTag.blob_load, store_id, blob_id}),
         .blob_save => |store_id, blob|
-            send_tuple(stream, .{CallTag.blob_save, store_id, blob}),
+            send_tuple(out, .{CallTag.blob_save, store_id, blob}),
         .blob_delete => |store_id, blob_id|
-            send_tuple(stream, .{CallTag.blob_delete, store_id, blob_id}),
+            send_tuple(out, .{CallTag.blob_delete, store_id, blob_id}),
     };
 }
 
-pub fn send_response(stream: *Writer, response: Response) !void {
+pub fn send_response(out: *Writer, response: Response) !void {
     try switch (response) {
-        .call => |call| send_call_resp(stream, call),
-        .err => |err| send(stream, error_to_status(err)),
+        .call => |call| send_call_resp(out, call),
+        .err => |err| send(out, error_to_status(err)),
     };
 }
 
-fn send_call_resp(stream: *Writer, call: Response.Call) !void {
+fn send_call_resp(out: *Writer, call: Response.Call) !void {
     try switch (call) {
         .store_list => |store_ids|
-            send_tuple(stream, .{Status.okay, store_ids}),
+            send_tuple(out, .{Status.okay, store_ids}),
         .blob_hash => |blob_id|
-            send_tuple(stream, .{Status.okay, blob_id}),
+            send_tuple(out, .{Status.okay, blob_id}),
         .blob_list => |blob_ids|
-            send_tuple(stream, .{Status.okay, blob_ids}),
+            send_tuple(out, .{Status.okay, blob_ids}),
         .blob_info => |blob_size|
-            send_tuple(stream, .{Status.okay, blob_size}),
+            send_tuple(out, .{Status.okay, blob_size}),
         .blob_load => |blob|
-            send_tuple(stream, .{Status.okay, blob}),
+            send_tuple(out, .{Status.okay, blob}),
         .blob_save => |status, blob_id|
-            send_tuple(stream, .{status, blob_id}),
+            send_tuple(out, .{status, blob_id}),
         .store_create, .store_destroy, .blob_delete =>
-            send(stream, Status.okay),
+            send(out, Status.okay),
     };
 }
 
@@ -112,140 +113,151 @@ fn error_to_status(err: ty.Err) Status {
     };
 }
 
-fn send(stream: *Writer, obj: anytype) ReaderWriterError!void {
+fn send(out: *Writer, obj: anytype) ReaderWriterError!void {
     return switch (@TypeOf(obj)) {
-        ty.StoreIds => send_store_ids(stream, obj),
-        ty.StoreId => send_store_id(stream, obj),
-        ty.BlobIds => send_blob_ids(stream, obj),
-        ty.BlobStream => send_blob_stream(stream, obj),
-        GreetCode, CallTag, Status => send_enum(stream, obj),
-        u16, u64 => stream.writeInt(@TypeOf(obj), obj, .little),
+        ty.StoreIds => send_store_ids(out, obj),
+        ty.StoreId => send_store_id(out, obj),
+        ty.BlobIds => send_blob_ids(out, obj),
+        *ty.Blob => send_blob(out, obj),
+        GreetCode, CallTag, Status => send_enum(out, obj),
+        u16, u64 => out.writeInt(@TypeOf(obj), obj, .little),
         else => unreachable,
     };
 }
 
-fn send_store_ids(stream: *Writer, store_ids: ty.StoreIds) !void {
+fn send_store_ids(out: *Writer, store_ids: ty.StoreIds) !void {
     const size: ArraySize = store_ids.len;
-    try send(stream, size);
+    try send(out, size);
     for (store_ids) |store_id| {
-        try send(stream, store_id);
+        try send(out, store_id);
     }
 }
 
-fn send_store_id(stream: *Writer, store_id: ty.StoreId) !void {
+fn send_store_id(out: *Writer, store_id: ty.StoreId) !void {
     const size: StoreIdSize = @intCast(store_id.id.len);
-    try send_tuple(stream, .{size, store_id.id});
+    try send_tuple(out, .{size, store_id.id});
 }
 
-fn send_blob_ids(stream: *Writer, blob_ids: ty.BlobIds) !void {
+fn send_blob_ids(out: *Writer, blob_ids: ty.BlobIds) !void {
     const size: ArraySize = blob_ids.len;
-    try send(stream, size);
-    try send_array(stream, std.mem.sliceAsBytes(blob_ids));
+    try send(out, size);
+    try send_array(out, std.mem.sliceAsBytes(blob_ids));
 }
 
-fn send_blob_stream(stream: *Writer, blob_in: ty.BlobStream) !void {
-    const size: ArraySize = blob_in.bytes_remain;
-    try send(stream, size);
-    try blob_in.stream.streamExact(stream, size);
-}
-
-fn send_enum(stream: *Writer, enum_val: anytype) !void {
-    const tag = @intFromEnum(enum_val);
-    try stream.writeInt(@TypeOf(tag), tag, .little);
-}
-
-fn send_tuple(stream: *Writer, tuple: anytype) !void {
-    inline for (tuple) |item| {
-        try send(stream, item);
+fn send_blob(out: *Writer, blob: *ty.Blob) !void {
+    switch (blob.*) {
+        .stream => |*in| {
+            const size: ArraySize = in.bytes_left;
+            try send(out, size);
+            try in.reader.streamExact(out, size);
+        },
+        .file => |file| {
+            const mmap_opts: std.Io.File.MemoryMap.CreateOptions = .{
+                .len = file.length(file.io),
+            };
+            var mem_map = try file.file.createMemoryMap(file.io, mmap_opts);
+            defer mem_map.destroy(file.io);
+            try send_array(out, mem_map.memory);
+        },
+        .memory => |bytes| {
+            try send_array(out, bytes);
+        },
     }
 }
 
-fn send_array(stream: *Writer, array: anytype) !void {
+fn send_enum(out: *Writer, enum_val: anytype) !void {
+    const tag = @intFromEnum(enum_val);
+    try out.writeInt(@TypeOf(tag), tag, .little);
+}
+
+fn send_tuple(out: *Writer, tuple: anytype) !void {
+    inline for (tuple) |item| {
+        try send(out, item);
+    }
+}
+
+fn send_array(out: *Writer, array: anytype) !void {
     const ElemType = std.meta.Child(@TypeOf(array));
-    return stream.writeSliceEndian(ElemType, array, .little);
+    return out.writeSliceEndian(ElemType, array, .little);
 }
 
 
-pub fn recv_open_door(stream: *Reader) !void {
-    const open_door = try recv(stream, ty.Code);
-    const proto_version = try recv(stream, ProtoVersion);
+pub fn recv_open_door(in: *Reader) !void {
+    const open_door = try recv(in, ty.Code);
+    const proto_version = try recv(in, ProtoVersion);
     if (open_door != CODE_OPEN_DOOR or proto_version != PROTO_VERSION) {
         return ty.Err.BadArgument;
     }
 }
 
-pub fn recv_welcome(stream: *Reader) !void {
-    const code = try recv(stream, GreetCode);
-    switch (code) {
-        .welcome => {
-            return;
-        },
-        .not_welcome => {
-            const proto_version = try recv(stream, ProtoVersion);
+pub fn recv_welcome(in: *Reader) !void {
+    const code = try recv(in, GreetCode);
+    return switch (code) {
+        .welcome => {},
+        .not_welcome => out: {
+            const proto_version = try recv(in, ProtoVersion);
             funcs.debug("recv_welcome: server says we are not welcome; "
                         ++ "client: v{d}, server: v{d}",
                         .{PROTO_VERSION, proto_version});
-            return ty.Err.BadArgument;
+            break :out ty.Err.BadArgument;
         },
-    }
-}
-
-pub fn recv_request(stream: *Reader) !Request {
-    const code = try recv(stream, ty.Code);
-    return switch (code) {
-        CODE_BYE => .bye,
-        else => .{.call =
-            try recv_call_request(stream, try parse_enum_tag(CallTag, code))},
     };
 }
 
-fn recv_call_request(stream: *Reader, call_tag: CallTag) !Request.Call {
+pub fn recv_request(in: *Reader) !Request {
+    const code = try recv(in, ty.Code);
+    return switch (code) {
+        CODE_BYE => .bye,
+        else => .{.call =
+            try recv_call_request(in, try parse_enum_tag(CallTag, code))},
+    };
+}
+
+fn recv_call_request(in: *Reader, call_tag: CallTag) !Request.Call {
     return switch(call_tag) {
         .store_list =>
             .store_list,
         .store_create =>
-            .{.store_create = try recv(stream, ty.StoreId)},
+            .{.store_create = try recv(in, ty.StoreId)},
         .store_destroy =>
-            .{.store_destroy = try recv(stream, ty.StoreId)},
+            .{.store_destroy = try recv(in, ty.StoreId)},
         .blob_hash =>
-            .{.blob_hash = try recv(stream, ty.BlobStream)},
+            .{.blob_hash = try recv(in, ty.Blob)},
         .blob_list =>
-            .{.blob_list = try recv(stream, ty.StoreId)},
+            .{.blob_list = try recv(in, ty.StoreId)},
         .blob_info =>
-            .{.blob_info = try recv(stream, Request.StoreIdBlobId)},
+            .{.blob_info = try recv(in, Request.StoreIdBlobId)},
         .blob_load =>
-            .{.blob_load = try recv(stream, Request.StoreIdBlobId)},
+            .{.blob_load = try recv(in, Request.StoreIdBlobId)},
         .blob_save =>
-            .{.blob_save = try recv(stream, Request.StoreIdBlob)},
+            .{.blob_save = try recv(in, Request.StoreIdBlob)},
         .blob_delete =>
-            .{.blob_delete = try recv(stream, Request.StoreIdBlobId)},
+            .{.blob_delete = try recv(in, Request.StoreIdBlobId)},
     };
 }
 
-pub fn recv_response(stream: *Reader, call_tag: CallTag) !Response {
-    const status = try recv(stream, Status);
+pub fn recv_response(in: *Reader, call_tag: CallTag) !Response {
+    const status = try recv(in, Status);
     const Pair = funcs.pairGen(@TypeOf(status), @TypeOf(call_tag));
     return switch (Pair.make(status, call_tag)) {
         Pair.make(.okay, .store_list) =>
-            .{.call = .{.store_list = try recv(stream, ty.StoreIds)}},
+            .{.call = .{.store_list = try recv(in, ty.StoreIds)}},
         Pair.make(.okay, .store_create) =>
             .{.call = .store_create},
         Pair.make(.okay, .store_destroy) =>
             .{.call = .store_destroy},
         Pair.make(.okay, .blob_hash) =>
-            .{.call = .{.blob_hash = try recv(stream, ty.BlobId)}},
+            .{.call = .{.blob_hash = try recv(in, ty.BlobId)}},
         Pair.make(.okay, .blob_list) =>
-            .{.call = .{.blob_list = try recv(stream, ty.BlobIds)}},
+            .{.call = .{.blob_list = try recv(in, ty.BlobIds)}},
         Pair.make(.okay, .blob_info) =>
-            .{.call = .{.blob_info = try recv(stream, ty.BlobSize)}},
+            .{.call = .{.blob_info = try recv(in, ty.Blob.Size)}},
         Pair.make(.okay, .blob_load) =>
-            .{.call = .{.blob_load = try recv(stream, ty.BlobStream)}},
+            .{.call = .{.blob_load = try recv(in, ty.Blob)}},
         Pair.make(.okay, .blob_save) =>
-            .{.call = .{.blob_save =
-                .{.status = .created, .blob_id = try recv(stream, ty.BlobId)}}},
+            .{.call = .{.blob_save = .{.created, try recv(in, ty.BlobId)}}},
         Pair.make(.exists, .blob_save) =>
-            .{.call = .{.blob_save =
-                .{.status = .exists, .blob_id = try recv(stream, ty.BlobId)}}},
+            .{.call = .{.blob_save = .{.exists, try recv(in, ty.BlobId)}}},
         Pair.make(.okay, .blob_delete) =>
             .{.call = .blob_delete},
         else =>
@@ -260,106 +272,95 @@ fn status_to_error(status: Status) ty.Err {
         Status.no_space => ty.Err.NoSpace,
         Status.bad_argument => ty.Err.BadArgument,
         Status.internal_error => ty.Err.Internal,
-        Status.okay => {
+        Status.okay => out: {
             funcs.debug("status_to_error: 'Okay' is not an error!\n", .{});
-            return ty.Err.Internal;
+            break :out ty.Err.Internal;
         }
     };
 }
 
-fn recv(stream: *Reader, ObjType: type) !ObjType {
+fn recv(in: *Reader, ObjType: type) !ObjType {
     return switch (ObjType) {
         Request.StoreIdBlobId, Request.StoreIdBlob, Response.SaveStatusBlobId =>
-            try recv_tuple(stream, ObjType),
+            try recv_tuple(in, ObjType),
         ty.StoreIds =>
-            try recv_store_ids(stream),
+            try recv_store_ids(in),
         ty.StoreId =>
-            try recv_store_id(stream),
+            try recv_store_id(in),
         ty.BlobIds =>
-            try recv_blob_ids(stream),
+            try recv_blob_ids(in),
         ty.BlobId =>
-            try recv_blob_id(stream),
-        ty.BlobStream =>
-            try recv_blob_stream(stream),
+            try recv_blob_id(in),
+        ty.Blob =>
+            try recv_blob(in),
         GreetCode, CallTag, Status =>
-            try recv_enum(stream, ObjType),
+            try recv_enum(in, ObjType),
         u16, u64 =>
-            try stream.takeInt(ObjType, .little),
+            try in.takeInt(ObjType, .little),
         else =>
             unreachable,
     };
 }
 
-fn recv_store_ids(stream: *Reader) !ty.StoreIds {
-    const array_size = try recv(stream, ArraySize);
-    const store_ids = try funcs.allocator.alloc(ty.StoreId, array_size);
+fn recv_store_ids(in: *Reader) !ty.StoreIds {
+    const array_size = try recv(in, ArraySize);
+    const store_ids = try mem.alloc(ty.StoreId, array_size);
     for (store_ids) |*store_id| {
-        store_id.* = try recv_store_id(stream);
+        store_id.* = try recv_store_id(in);
     }
     return store_ids;
 }
 
-fn recv_store_id(stream: *Reader) !ty.StoreId {
-    const size = try recv(stream, StoreIdSize);
-    const store_id = try funcs.allocator.alloc(u8, size);
-    try recv_array(stream, u8, store_id);
-    return .{
-        .id = store_id,
-    };
+fn recv_store_id(in: *Reader) !ty.StoreId {
+    const size = try recv(in, StoreIdSize);
+    const store_id = try mem.alloc(u8, size);
+    try recv_array(in, u8, store_id);
+    return .{.id = store_id};
 }
 
-fn recv_blob_ids(stream: *Reader) !ty.BlobIds {
-    const array_size = try recv(stream, ArraySize);
-    const blob_ids = try funcs.allocator.alloc(ty.BlobId, array_size);
-    try recv_array(stream, u8, std.mem.sliceAsBytes(blob_ids));
+fn recv_blob_ids(in: *Reader) !ty.BlobIds {
+    const array_size = try recv(in, ArraySize);
+    const blob_ids = try mem.alloc(ty.BlobId, array_size);
+    try recv_array(in, u8, std.mem.sliceAsBytes(blob_ids));
     return blob_ids;
 }
 
-fn recv_blob_id(stream: *Reader) !ty.BlobId {
+fn recv_blob_id(in: *Reader) !ty.BlobId {
     var blob_id: ty.BlobId = undefined;
-    try recv_array(stream, u8, &blob_id);
+    try recv_array(in, u8, &blob_id);
     return blob_id;
 }
 
-fn recv_blob_stream(stream: *Reader) !ty.BlobStream {
-    const array_size = try recv(stream, ArraySize);
-    return .{
-        .bytes_remain = array_size,
-        .stream = stream,
-    };
+fn recv_blob(in: *Reader) !ty.Blob {
+    const array_size = try recv(in, ArraySize);
+    return .{.stream = .{
+        .reader = in.*,
+        .bytes_left = array_size,
+    }};
 }
 
-fn recv_enum(stream: *Reader, Enum: type) !Enum {
+fn recv_enum(in: *Reader, Enum: type) !Enum {
     const Tag = @typeInfo(Enum).@"enum".tag_type;
-    const tag = try stream.takeInt(Tag, .little);
+    const tag = try in.takeInt(Tag, .little);
     return parse_enum_tag(Enum, tag);
 }
 
 fn parse_enum_tag(Enum: type, tag: anytype) !Enum {
-    return if (std.enums.fromInt(Enum, tag)) |val| val else {
+    return if (std.enums.fromInt(Enum, tag)) |val| val else out: {
         funcs.debug("parse_enum_tag: {s} is not a {s} value.",
                     .{@typeName(Enum), ty.decode8(tag)});
-        return ty.Err.BadArgument;
+        break :out ty.Err.BadArgument;
     };
 }
 
-fn recv_tuple(stream: *Reader, comptime Tuple: anytype) !Tuple {
+fn recv_tuple(in: *Reader, comptime Tuple: anytype) !Tuple {
     var out: Tuple = undefined;
     inline for (std.meta.fields(Tuple)) |field| {
-        @field(out, field.name) = try recv(stream, field.type);
+        @field(out, field.name) = try recv(in, field.type);
     }
     return out;
 }
 
-fn recv_array(stream: *Reader, ElemType: type, array: []ElemType) !void {
-    return stream.readSliceEndian(ElemType, array, .little);
-}
-
-test "whatever" {
-    var in = Reader.fixed("");
-    var out = Writer.fixed("");
-    const request = recv_request(&in) catch .store_list;
-    _ = send_request(&out, request) catch void;
-    const response = recv_response(&in, request) catch .store_create;
-    _ = send_response(&out, response) catch void;
+fn recv_array(in: *Reader, ElemType: type, array: []ElemType) !void {
+    return in.readSliceEndian(ElemType, array, .little);
 }

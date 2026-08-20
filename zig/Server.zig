@@ -2,11 +2,14 @@ const std = @import("std");
 const sockaddr = std.posix.sockaddr;
 const IpAddress = std.Io.net.IpAddress;
 const Stream = std.Io.net.Stream;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 
+const ty = @import("types.zig");
+const mem = @import("mem.zig");
+const funcs = @import("funcs.zig");
 const Persister = @import("Persister.zig");
 const send_recv = @import("send_recv.zig");
-const funcs = @import("funcs.zig");
-const ty = @import("types.zig");
 
 const Self = @This();
 
@@ -14,7 +17,7 @@ io: std.Io,
 inner: *Persister,
 address: IpAddress,
 
-pub fn create(init: ty.Init, inner: *Persister) !Self {
+pub fn create(init: std.process.Init, inner: *Persister) !Self {
     const address_str = try funcs.getEnv(init.environ_map, "BIND_ADDRESS");
     const address = try IpAddress.parseLiteral(address_str);
     return .{
@@ -63,52 +66,50 @@ pub fn clientSession(self: *Self, stream: *Stream) void {
 pub fn handle_stream(self: *Self, stream: *Stream) !void {
     const BUF_SIZE = 4096;
 
-    const read_buf = try funcs.allocator.alloc(u8, BUF_SIZE);
-    defer funcs.allocator.free(read_buf);
+    const read_buf = try mem.alloc(u8, BUF_SIZE);
+    defer mem.free(read_buf);
     var in = stream.reader(self.io, read_buf);
 
-    const write_buf = try funcs.allocator.alloc(u8, BUF_SIZE);
-    defer funcs.allocator.free(write_buf);
+    const write_buf = try mem.alloc(u8, BUF_SIZE);
+    defer mem.free(write_buf);
     var out = stream.writer(self.io, write_buf);
 
     try shake_hands(&in.interface, &out.interface);
     while (try self.handle_request(&in.interface, &out.interface)) {}
 }
 
-pub fn shake_hands(in: *ty.Reader, out: *ty.Writer) !void {
-    send_recv.recv_open_door(in) catch |err| switch (err) {
-        ty.Err.BadArgument => {
+pub fn shake_hands(in: *Reader, out: *Writer) !void {
+    send_recv.recv_open_door(in) catch |err| return switch (err) {
+        ty.Err.BadArgument => out: {
             try send_recv.send_not_welcome(out);
-            return;
+            break :out ty.Err.BadArgument;
         },
-        else => return err,
+        else => err,
     };
     try send_recv.send_welcome(out);
 }
 
-pub fn handle_request(self: *Self, in: *ty.Reader, out: *ty.Writer) !bool {
+pub fn handle_request(self: *Self, in: *Reader, out: *Writer) !bool {
     var request = try send_recv.recv_request(in);
-    const opt_response = self.process_request(&request);
-    if (opt_response) |response| {
-        try send_recv.send_response(out, response);
-        return true;
-    } else {
+    defer request.deinit();
+    var response = self.process_request(&request) orelse {
         return false;
-    }
+    };
+    defer response.deinit();
+    try send_recv.send_response(out, response);
+    return true;
 }
 
 pub fn process_request(self: *Self, request: *ty.Request) ?ty.Response {
-    switch (request.*) {
-        .call => |*call| {
+    return switch (request.*) {
+        .call => |*call| out: {
             const call_resp = self.process_call_request(call) catch |err| {
-                return .{.err = handle_error(err)};
+                break :out .{.err = handle_error(err)};
             };
-            return .{.call = call_resp};
+            break :out .{.call = call_resp};
         },
-        .bye => {
-            return null;
-        },
-    }
+        .bye => null,
+    };
 }
 
 fn process_call_request(self: *Self, call: *ty.Request.Call) !ty.Response.Call {
@@ -120,7 +121,7 @@ fn process_call_request(self: *Self, call: *ty.Request.Call) !ty.Response.Call {
         .store_destroy => |store_id| .{.store_destroy =
             try self.inner.store_destroy(store_id)},
         .blob_hash => |*blob| .{.blob_hash =
-            try funcs.hashBlobStream(blob)},
+            try funcs.hashBlob(blob)},
         .blob_list => |store_id| .{.blob_list =
             try self.inner.blob_list(store_id)},
         .blob_info => |args| .{.blob_info =
@@ -158,7 +159,7 @@ fn format_address(opt_address: ?IpAddress) [64]u8 {
     return buf;
 }
 
-fn write_placeholder(out: *ty.Writer) void {
+fn write_placeholder(out: *Writer) void {
     out.writeAll("?") catch {};
 }
 

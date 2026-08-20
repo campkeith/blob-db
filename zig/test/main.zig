@@ -1,11 +1,14 @@
 const std = @import("std");
 const testing = std.testing;
 
-const Client = @import("blob-db/Client.zig");
-const funcs = @import("blob-db/funcs.zig");
+
 const ty = @import("blob-db/types.zig");
 const StoreId = ty.StoreId;
 const BlobId = ty.BlobId;
+
+const mem = @import("blob-db/mem.zig");
+const funcs = @import("blob-db/funcs.zig");
+const Client = @import("blob-db/Client.zig");
 
 const fake = @import("fake.zig");
 
@@ -18,7 +21,7 @@ pub fn main(init: std.process.Init) !void {
     const args = parse_args(init.minimal.args);
     var client = try Client.connect(init.io, args.address);
     defer client.close();
-    var db = TestRig.Db.init(funcs.allocator);
+    var db = TestRig.Db.init(mem.allocator);
     defer db.deinit();
     var rng_impl = std.Random.DefaultPrng.init(0);
     var rng = rng_impl.random();
@@ -64,54 +67,51 @@ const TestRig = struct {
     rng: *std.Random,
 };
 
-const StoreIdHasher = struct {
-    pub fn hash(_: @This(), store_id: StoreId) u64 {
-        return std.hash.Wyhash.hash(0, store_id.id);
+const StoreIdHasher = HasherFromKeyFunc(struct {
+    pub fn key(store_id: StoreId) []const u8 {
+        return store_id.id;
     }
+});
 
-    pub fn eql(_: @This(), a: StoreId, b: StoreId) bool {
-        return std.mem.eql(u8, a.id, b.id);
+const BlobIdHasher = HasherFromKeyFunc(struct {
+    pub fn key(blob_id: BlobId) []const u8 {
+        return &blob_id;
     }
-};
+});
 
-const BlobIdHasher = struct {
-    pub fn hash(_: @This(), blob_id: BlobId) u64 {
-        return std.hash.Wyhash.hash(0, &blob_id);
-    }
+fn HasherFromKeyFunc(KeyFunc: type) type {
+    return struct {
+        pub fn hash(_: @This(), key: anytype) u64 {
+            return std.hash.Wyhash.hash(0, KeyFunc.key(key));
+        }
 
-    pub fn eql(_: @This(), a: BlobId, b: BlobId) bool {
-        return std.mem.eql(u8, &a, &b);
-    }
-};
+        pub fn eql(_: @This(), a: anytype, b: anytype) bool {
+            return std.mem.eql(u8, KeyFunc.key(a), KeyFunc.key(b));
+        }
+    };
+}
 
 fn go(rig: *TestRig, iterations: u64) !void {
     const Func = *const fn (*TestRig) anyerror!void;
     const Weight = f32;
 
-    const FuncWeightPair = struct {
-        func: Func,
-        weight: Weight,
-
-        fn make(func: Func, weight: Weight) @This() {
-            return .{.func = func, .weight = weight};
-        }
-    };
+    const FuncWeightPair = struct {Func, Weight};
     const ops = [_]FuncWeightPair{
-        FuncWeightPair.make(test_store_list, 0.2),
-        FuncWeightPair.make(test_store_create, 0.2),
-        FuncWeightPair.make(test_store_destroy, 0.1),
-        FuncWeightPair.make(test_blob_hash, 1),
-        FuncWeightPair.make(test_blob_list, 2),
-        FuncWeightPair.make(test_blob_info, 1),
-        FuncWeightPair.make(test_blob_load, 1),
-        FuncWeightPair.make(test_blob_save, 1),
-        FuncWeightPair.make(test_blob_delete, 1),
+        .{test_store_list, 0.2},
+        .{test_store_create, 0.2},
+        .{test_store_destroy, 0.1},
+        .{test_blob_hash, 1},
+        .{test_blob_list, 2},
+        .{test_blob_info, 1},
+        .{test_blob_load, 1},
+        .{test_blob_save, 1},
+        .{test_blob_delete, 1},
     };
-    const weights = unzip_field(ops, "weight");
+    const weights = unzip_col(ops, 1);
     try test_store_list(rig);
     for (0..iterations) |_| {
         const index = rig.rng.weightedIndex(Weight, &weights);
-        const op = ops[index].func;
+        const op, _ = ops[index];
         try op(rig);
     }
     while (rig.db.count() != 0) {
@@ -119,21 +119,19 @@ fn go(rig: *TestRig, iterations: u64) !void {
     }
 }
 
-fn unzip_field(array: anytype, comptime name: []const u8)
-        [array.len]@FieldType(@TypeOf(array[0]), name) {
-    var out: [array.len]@FieldType(@TypeOf(array[0]), name) = undefined;
-    for (array, &out) |array_elem, *out_elem| {
-        out_elem.* = @field(array_elem, name);
-    }
+fn unzip_col(matrix: anytype, comptime index: usize)
+        [matrix.len]@TypeOf(matrix[0][index]) {
+    var out: [matrix.len]@TypeOf(matrix[0][index]) = undefined;
+    for (matrix, &out) |row, *out_elem| out_elem.* = row[index];
     return out;
 }
 
 fn test_store_list(rig: *TestRig) anyerror!void {
     const exp_store_ids = try sorted_map_keys(StoreId, rig.db);
-    defer funcs.allocator.free(exp_store_ids);
+    defer mem.free(exp_store_ids);
     const store_ids = try rig.client.store_list();
     sort_matrix(StoreId, store_ids);
-    try std.testing.expectEqual(exp_store_ids, store_ids);
+    try testing.expectEqual(exp_store_ids, store_ids);
 }
 
 fn test_store_create(rig: *TestRig) anyerror!void {
@@ -141,8 +139,8 @@ fn test_store_create(rig: *TestRig) anyerror!void {
     const exp_result = if (in_db) ty.Err.Exists
                        else {};
     const result = rig.client.store_create(store_id);
-    try std.testing.expectEqual(exp_result, result);
-    if (!in_db) try rig.db.put(store_id, TestRig.Store.init(funcs.allocator));
+    try testing.expectEqual(exp_result, result);
+    if (!in_db) try rig.db.put(store_id, TestRig.Store.init(mem.allocator));
 }
 
 fn test_store_destroy(rig: *TestRig) anyerror!void {
@@ -150,17 +148,16 @@ fn test_store_destroy(rig: *TestRig) anyerror!void {
     const exp_result = if (in_db) {}
                        else ty.Err.NotFound;
     const result = rig.client.store_destroy(store_id);
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
     if (in_db) db_remove(rig.db, store_id);
 }
 
 fn test_blob_hash(rig: *TestRig) anyerror!void {
     const blob = try fake.blob(rig.rng, TestRig.MAX_BLOB_SIZE);
-    defer funcs.allocator.free(blob);
-    const exp_blob_id = funcs.hashBlob(blob);
-    var stream = try createStream(blob);
-    const blob_id = rig.client.blob_hash(&stream);
-    try std.testing.expectEqual(exp_blob_id, blob_id);
+    defer mem.free(blob);
+    const exp_blob_id = funcs.hashMemory(blob);
+    const blob_id = rig.client.blob_hash(.{.memory = blob});
+    try testing.expectEqual(exp_blob_id, blob_id);
 }
 
 fn test_blob_list(rig: *TestRig) anyerror!void {
@@ -168,12 +165,12 @@ fn test_blob_list(rig: *TestRig) anyerror!void {
     const exp_result =
         if (in_db) try sorted_map_keys(BlobId, rig.db.getPtr(store_id).?)
         else ty.Err.NotFound;
-    defer if (exp_result) |blob_ids| funcs.allocator.free(blob_ids) else |_| {};
+    defer if (exp_result) |blob_ids| mem.free(blob_ids) else |_| {};
     const result = rig.client.blob_list(store_id);
     if (result) |blob_ids| {
         sort_matrix(BlobId, blob_ids);
     } else |_| {}
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
 }
 
 fn test_blob_info(rig: *TestRig) anyerror!void {
@@ -181,17 +178,17 @@ fn test_blob_info(rig: *TestRig) anyerror!void {
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?.len
                        else ty.Err.NotFound;
     const result = rig.client.blob_info(store_id, blob_id);
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
 }
 
 fn test_blob_load(rig: *TestRig) anyerror!void {
     const store_id, _, const blob_id, const blob_ok = try random_store_blob(rig);
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?
                        else ty.Err.NotFound;
-    const result_stream = rig.client.blob_load(store_id, blob_id);
-    const result = if (result_stream) |stream| try slurp(stream)
+    var result_stream = rig.client.blob_load(store_id, blob_id);
+    const result = if (result_stream) |*stream| try slurp(&stream.stream)
                    else |err| err;
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
 }
 
 fn test_blob_save(rig: *TestRig) anyerror!void {
@@ -204,20 +201,19 @@ fn test_blob_save(rig: *TestRig) anyerror!void {
             break :blob .{sel_blob_id, blob};
         } else blob: {
             const blob = try fake.blob(rig.rng, TestRig.MAX_BLOB_SIZE);
-            errdefer funcs.allocator.free(blob);
-            const blob_id = funcs.hashBlob(blob);
+            errdefer mem.free(blob);
+            const blob_id = funcs.hashMemory(blob);
             break :blob .{blob_id, blob};
         };
-    errdefer if (!blob_ok) funcs.allocator.free(blob);
-    var stream = try createStream(blob);
-    const result = rig.client.blob_save(store_id, &stream);
+    errdefer if (!blob_ok) mem.free(blob);
+    const result = rig.client.blob_save(store_id, .{.memory = blob});
     const Pair = funcs.pairGen(bool, bool);
     const exp_result: @TypeOf(result) = switch (Pair.make(store_ok, blob_ok)) {
-        Pair.make(true, false) => .{.status = .created, .blob_id = exp_blob_id},
-        Pair.make(true, true) => .{.status = .exists, .blob_id = exp_blob_id},
+        Pair.make(true, false) => .{.created, exp_blob_id},
+        Pair.make(true, true) => .{.exists, exp_blob_id},
         else => ty.Err.NotFound,
     };
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
     if (store_ok and !blob_ok) {
         try rig.db.getPtr(store_id).?.put(exp_blob_id, blob);
     }
@@ -228,21 +224,14 @@ fn test_blob_delete(rig: *TestRig) anyerror!void {
     const exp_result = if (blob_ok) {}
                        else ty.Err.NotFound;
     const result = rig.client.blob_delete(store_id, blob_id);
-    try std.testing.expectEqual(exp_result, result);
+    try testing.expectEqual(exp_result, result);
     if (blob_ok) store_remove(rig.db.getPtr(store_id).?, blob_id);
 }
 
-fn createStream(blob: fake.Blob) !ty.BlobStream {
-    const stream = try funcs.allocator.create(std.Io.Reader);
-    errdefer funcs.allocator.destroy(stream);
-    stream.* = std.Io.Reader.fixed(blob);
-    return .{.bytes_remain = blob.len, .stream = stream};
-}
-
-fn slurp(stream: ty.BlobStream) !fake.Blob {
-    const blob = try funcs.allocator.alloc(u8, stream.bytes_remain);
-    errdefer funcs.allocator.free(blob);
-    try stream.stream.readSliceAll(blob);
+fn slurp(stream: *ty.Blob.Stream) !fake.Blob {
+    const blob = try mem.alloc(u8, stream.bytes_left);
+    errdefer mem.free(blob);
+    try stream.reader.readSliceAll(blob);
     return blob;
 }
 
@@ -255,14 +244,14 @@ fn db_remove(db: *TestRig.Db, store_id: StoreId) void {
 fn free_store(store: *TestRig.Store) void {
     var val_iter = store.valueIterator();
     while (val_iter.next()) |blob| {
-        funcs.allocator.free(blob.*);
+        mem.free(blob.*);
     }
     store.deinit();
 }
 
 fn store_remove(store: *TestRig.Store, blob_id: BlobId) void {
     if (store.fetchRemove(blob_id)) |item| {
-        funcs.allocator.free(item.value);
+        mem.free(item.value);
     }
 }
 
@@ -292,7 +281,7 @@ fn random_store_with_p(rig: *TestRig, in_db_p: f32) !struct {StoreId, bool} {
 
 fn sorted_map_keys(Key: type, map: anytype) ![]Key {
     const size = map.count();
-    const out = try funcs.allocator.alloc(Key, size);
+    const out = try mem.alloc(Key, size);
     var map_iter = map.keyIterator();
     for (out) |*elem| {
         elem.* = map_iter.next().?.*;
