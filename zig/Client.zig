@@ -108,8 +108,7 @@ fn send_call_recv_result(self: *Self, comptime call_tag: ty.CallTag,
     };
     defer request.deinit();
     try send_recv.send_request(&self.out.interface, request);
-    var response = try send_recv.recv_response(&self.in.interface, call_tag);
-    defer response.deinit();
+    const response = try send_recv.recv_response(&self.in.interface, call_tag);
     return switch (response) {
         .call => |result| @field(result, @tagName(call_tag)),
         .err => |err| err,

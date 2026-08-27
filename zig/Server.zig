@@ -29,7 +29,7 @@ pub fn create(init: std.process.Init, inner: *Persister) !Self {
 
 pub fn go(self: *Self) !void {
     const opts: IpAddress.ListenOptions = .{
-        .reuse_address = false,
+        .reuse_address = true,
     };
     var server = try self.address.listen(self.io, opts);
     defer server.deinit(self.io);
@@ -55,7 +55,8 @@ pub fn clientSession(self: *Self, stream: *Stream) void {
     const peer_addr = peer_address(stream) catch null;
     const peer_addr_str = format_address(peer_addr);
     funcs.debug("Client at {s} connected.\n", .{peer_addr_str});
-    self.handle_stream(stream) catch |err| {
+    self.handle_stream(stream) catch |raw_err| {
+        const err = handle_error(raw_err);
         funcs.debug("Dropping client at {s} due to {any}.\n",
                     .{peer_addr_str, err});
         return;
@@ -92,7 +93,7 @@ pub fn shake_hands(in: *Reader, out: *Writer) !void {
 pub fn handle_request(self: *Self, in: *Reader, out: *Writer) !bool {
     var request = try send_recv.recv_request(in);
     defer request.deinit();
-    var response = self.process_request(&request) orelse {
+    var response = self.process_request(request) orelse {
         return false;
     };
     defer response.deinit();
@@ -100,9 +101,9 @@ pub fn handle_request(self: *Self, in: *Reader, out: *Writer) !bool {
     return true;
 }
 
-pub fn process_request(self: *Self, request: *ty.Request) ?ty.Response {
-    return switch (request.*) {
-        .call => |*call| out: {
+pub fn process_request(self: *Self, request: ty.Request) ?ty.Response {
+    return switch (request) {
+        .call => |call| out: {
             const call_resp = self.process_call_request(call) catch |err| {
                 break :out .{.err = handle_error(err)};
             };
@@ -112,15 +113,15 @@ pub fn process_request(self: *Self, request: *ty.Request) ?ty.Response {
     };
 }
 
-fn process_call_request(self: *Self, call: *ty.Request.Call) !ty.Response.Call {
-    return switch (call.*) {
+fn process_call_request(self: *Self, call: ty.Request.Call) !ty.Response.Call {
+    return switch (call) {
         .store_list => .{.store_list =
             try self.inner.store_list()},
         .store_create => |store_id| .{.store_create =
             try self.inner.store_create(store_id)},
         .store_destroy => |store_id| .{.store_destroy =
             try self.inner.store_destroy(store_id)},
-        .blob_hash => |*blob| .{.blob_hash =
+        .blob_hash => |blob| .{.blob_hash =
             try funcs.hashBlob(blob)},
         .blob_list => |store_id| .{.blob_list =
             try self.inner.blob_list(store_id)},
@@ -128,19 +129,26 @@ fn process_call_request(self: *Self, call: *ty.Request.Call) !ty.Response.Call {
             try self.inner.blob_info(args.store_id, args.blob_id)},
         .blob_load => |args| .{.blob_load =
             try self.inner.blob_load(args.store_id, args.blob_id)},
-        .blob_save => |*args| .{.blob_save =
-            try self.inner.blob_save(args.store_id, &args.blob)},
+        .blob_save => |args| .{.blob_save =
+            try self.inner.blob_save(args.store_id, args.blob)},
         .blob_delete => |args| .{.blob_delete =
             try self.inner.blob_delete(args.store_id, args.blob_id)},
     };
 }
 
 fn handle_error(err: anytype) ty.Err {
-    return switch (@TypeOf(err)) {
-        ty.Err => err,
+    return switch (err) {
+        ty.Err.NotFound, ty.Err.Exists, ty.Err.BadArgument, ty.Err.Internal =>
+            |err_| err_,
         else => {
-            funcs.debug("handle_error: Unexpected internal error:\n", .{});
-            std.debug.dumpCurrentStackTrace(.{});
+            funcs.debug("handle_error: Unexpected internal error: {}\n", .{err});
+            if (@errorReturnTrace()) |trace| {
+                const size = @min(trace.index, trace.instruction_addresses.len);
+                std.debug.dumpStackTrace(&.{
+                    .return_addresses = trace.instruction_addresses[0..size],
+                    .skipped = .none,
+                });
+            }
             return ty.Err.Internal;
         }
     };

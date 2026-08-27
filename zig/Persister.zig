@@ -65,22 +65,20 @@ pub fn store_create(self: *Self, store_id: StoreId) !void {
 }
 
 pub fn store_destroy(self: *Self, store_id: StoreId) !void {
-    self.base_dir.deleteTree(self.io, store_id.id) catch |err|
-        return switch (err) {
-            // FIXME: this doesn't seem to exist
-            // error.FileNotFound => ty.Err.NotFound,
+    // FIXME: randomly generate
+    const tmp_dirname = "whatever";
+    self.base_dir.rename(store_id.id, self.base_dir, tmp_dirname, self.io)
+        catch |err| return switch (err) {
+            error.FileNotFound => ty.Err.NotFound,
             else => err,
         };
+    try self.base_dir.deleteTree(self.io, tmp_dirname);
 }
 
 pub fn blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
     var list: std.ArrayList(BlobId) = .empty;
     errdefer list.deinit(mem.allocator);
-    var store_dir = self.open_store_dir(store_id) catch |err|
-        return switch (err) {
-            error.FileNotFound => ty.Err.NotFound,
-            else => err,
-        };
+    var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
     var iterator = store_dir.iterate();
     while (try iterator.next(self.io)) |entry| {
@@ -128,37 +126,46 @@ pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
     }};
 }
 
-pub fn blob_save(self: *Self, store_id: StoreId, blob: *Blob)
+pub fn blob_save(self: *Self, store_id: StoreId, blob: Blob)
         !ty.Response.SaveStatusBlobId {
-    const in = try blob_to_stream(blob);
-
     var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
 
-    const opts: Dir.CreateFileAtomicOptions = .{};
-    var file = try store_dir.createFileAtomic(self.io, "", opts);
-    defer file.deinit(self.io);
-    try file.file.setLength(self.io, in.bytes_left);
+    const opts = Dir.CreateFileOptions{
+        .read = true,
+        .exclusive = true,
+    };
+    // FIXME: generate random string
+    const tmp_filename = "whatever";
+    var file = try store_dir.createFile(self.io, tmp_filename, opts);
+    errdefer store_dir.deleteFile(self.io, tmp_filename) catch |err|
+        funcs.debug("blob_save: temp file remove failed due to {}\n.", .{err});
+    defer file.close(self.io);
+
+    const size = try funcs.blobSize(blob);
+    try file.setLength(self.io, size);
 
     const mmap_opts: File.MemoryMap.CreateOptions = .{
-        .len = in.bytes_left,
+        .len = size,
     };
-    var blob_out = file.file.createMemoryMap(self.io, mmap_opts) catch |err|
+    var blob_out = file.createMemoryMap(self.io, mmap_opts) catch |err|
         return switch (err) {
             error.OutOfMemory => ty.Err.NoSpace,
             else => err,
         };
     defer blob_out.destroy(self.io);
 
-    const blob_id = try funcs.hashCopyBlob(&in.reader, blob_out.memory);
+    const blob_id = try funcs.hashCopyBlob(blob, blob_out.memory);
     const blob_id_str = funcs.hashBytesToHex(blob_id);
-    file.dest_sub_path = &blob_id_str;
-    file.link(self.io) catch |err|
-        return switch (err) {
-            error.PathAlreadyExists => .{.exists, blob_id},
+    store_dir.renamePreserve(tmp_filename, store_dir, &blob_id_str, self.io)
+        catch |err| return switch (err) {
+            error.PathAlreadyExists => out: {
+                try store_dir.deleteFile(self.io, tmp_filename);
+                break :out .init(.exists, blob_id);
+            },
             else => err,
         };
-    return .{.created, blob_id};
+    return .init(.created, blob_id);
 }
 
 pub fn blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
@@ -181,15 +188,4 @@ fn open_store_dir(self: *Self, store_id: StoreId) !Dir {
             error.FileNotFound => ty.Err.NotFound,
             else => err,
         };
-}
-
-fn blob_to_stream(blob: *Blob) !*Blob.Stream {
-    return switch (blob.*) {
-        .stream => |*stream| stream,
-        else => {
-            funcs.debug("blob_to_stream: Unexpected blob source: {any}",
-                        .{std.meta.activeTag(blob.*)});
-            return ty.Err.Internal;
-        }
-    };
 }

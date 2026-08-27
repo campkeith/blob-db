@@ -18,20 +18,29 @@ pub fn debug(comptime format: []const u8, args: anytype) void {
     std.debug.print(format, args);
 }
 
-pub fn hashBlob(blob: *ty.Blob) !ty.BlobId {
-    return switch (blob.*) {
-        .stream => |*in| out: {
+pub fn blobSize(blob: ty.Blob) !ty.Blob.Size {
+    return switch (blob) {
+        .stream => |in| in.bytes_left,
+        .file => |file| try file.file.length(file.io),
+        .memory => |bytes| bytes.len,
+    };
+}
+
+pub fn hashBlob(blob: ty.Blob) !ty.BlobId {
+    return switch (blob) {
+        .stream => |in| out: {
             var hasher = Hasher.init(.{});
             var chunk = try mem.alloc(u8, CHUNK_SIZE);
             defer mem.free(chunk);
             while (in.bytes_left > 0) {
                 const slice = chunk[0 .. @min(in.bytes_left, CHUNK_SIZE)];
                 try in.reader.readSliceAll(slice);
+                in.bytes_left -= slice.len;
                 hasher.update(slice);
             }
             break :out hasher.finalResult();
         },
-        .file => |*file| out: {
+        .file => |file| out: {
             const mmap_opts: std.Io.File.MemoryMap.CreateOptions = .{
                 .len = try file.file.length(file.io),
             };
@@ -43,18 +52,33 @@ pub fn hashBlob(blob: *ty.Blob) !ty.BlobId {
     };
 }
 
-pub fn hashCopyBlob(input: *std.Io.Reader, output: []u8) !ty.BlobId {
-    var hasher = Hasher.init(.{});
-    var index: usize = 0;
-    while (index < output.len) : (index += CHUNK_SIZE) {
-        const chunk = output[index .. @min(index + CHUNK_SIZE, output.len)];
-        try input.readSliceAll(chunk);
-        hasher.update(chunk);
-    }
-    return hasher.finalResult();
+pub fn hashCopyBlob(blob: ty.Blob, out: []u8) !ty.BlobId {
+    return switch (blob) {
+        .stream => |in| out: {
+            if (in.bytes_left != out.len) {
+                debug("hashCopyBlob[stream]: size mismatch: ({d}, {d})\n",
+                            .{in.bytes_left, out.len});
+                return ty.Err.Internal;
+            }
+            var hasher = Hasher.init(.{});
+            var index: usize = 0;
+            while (index < out.len) : (index += CHUNK_SIZE) {
+                const chunk = out[index .. @min(index + CHUNK_SIZE, out.len)];
+                try in.reader.readSliceAll(chunk);
+                in.bytes_left -= chunk.len;
+                hasher.update(chunk);
+            }
+            break :out hasher.finalResult();
+        },
+        else => {
+            const tag = std.meta.activeTag(blob);
+            debug("hashCopyBlob: {any} not supported.", .{tag});
+            return ty.Err.Internal;
+        },
+    };
 }
 
-pub fn hashMemory(blob: []u8) ty.BlobId {
+pub fn hashMemory(blob: []const u8) ty.BlobId {
     var blob_id: ty.BlobId = undefined;
     Hasher.hash(blob, &blob_id, .{});
     return blob_id;

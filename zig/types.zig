@@ -31,8 +31,8 @@ pub const Request = union(enum) {
         blob_save: StoreIdBlob,
         blob_delete: StoreIdBlobId,
 
-        pub fn deinit(self: *Call) void {
-            switch (self.*) {
+        pub fn deinit(self: Call) void {
+            switch (self) {
                 .blob_hash => |*blob| blob.deinit(),
                 .blob_save => |*args| args.deinit(),
                 else => {},
@@ -57,13 +57,13 @@ pub const Request = union(enum) {
             return .{.store_id = store_id, .blob = blob};
         }
 
-        pub fn deinit(self: *StoreIdBlob) void {
+        pub fn deinit(self: StoreIdBlob) void {
             self.blob.deinit();
         }
     };
 
-    pub fn deinit(self: *Request) void {
-        switch (self.*) {
+    pub fn deinit(self: Request) void {
+        switch (self) {
             .call => |*call| call.deinit(),
             else => {},
         }
@@ -86,24 +86,31 @@ pub const Response = union(enum) {
         blob_save: SaveStatusBlobId,
         blob_delete,
 
-        pub fn deinit(self: *Call) void {
-            switch (self.*) {
-                .blob_load => |*blob| blob.deinit(),
+        pub fn deinit(self: Call) void {
+            switch (self) {
+                .blob_load => |blob| blob.deinit(),
                 else => {},
             }
         }
     };
 
-    pub const SaveStatusBlobId = struct {SaveStatus, BlobId};
+    pub const SaveStatusBlobId = struct {
+        status: SaveStatus,
+        blob_id: BlobId,
+
+        pub fn init(status: SaveStatus, blob_id: BlobId) @This() {
+            return .{.status = status, .blob_id = blob_id};
+        }
+    };
 
     pub const SaveStatus = enum {
         created,
         exists,
     };
 
-    pub fn deinit(self: *Response) void {
-        switch (self.*) {
-            .call => |*call| call.deinit(),
+    pub fn deinit(self: Response) void {
+        switch (self) {
+            .call => |call| call.deinit(),
             else => {},
         }
     }
@@ -126,31 +133,42 @@ pub const BlobIdStr = [64]u8;
 pub const BlobIds = []BlobId;
 
 pub const Blob = union(enum) {
-    stream: Stream,
+    stream: *Stream,
     file: File,
     memory: []u8,
 
     pub const Size = u64;
 
     pub const Stream = struct {
-        reader: std.Io.Reader,
+        reader: *std.Io.Reader,
         bytes_left: usize,
+
+        pub fn discard(self: *Stream) void {
+            self.reader.discardAll(self.bytes_left) catch |err| {
+                std.debug.print("Blob.Stream.discard failed due to {}.\n", .{err});
+                return;
+            };
+            self.bytes_left = 0;
+        }
     };
 
     pub const File = struct {
         file: std.Io.File,
         io: std.Io,
 
-        fn close(self: *File) void {
+        pub fn close(self: File) void {
             self.file.close(self.io);
         }
     };
 
-    pub fn deinit(self: *Blob) void {
-        switch (self.*) {
-            .stream => {},
-            .file => |*file| file.close(),
-            .memory => |bytes| mem.free(bytes),
+    pub fn deinit(self: Blob) void {
+        switch (self) {
+            .stream => |stream| {
+                stream.discard();
+                mem.destroy(stream);
+            },
+            .file => |file| file.close(),
+            .memory => {},
         }
     }
 };
