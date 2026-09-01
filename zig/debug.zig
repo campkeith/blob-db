@@ -19,22 +19,27 @@ pub fn dump_tuple(tuple: anytype) void {
 }
 
 pub fn dump(obj: anytype) void {
-    if (@typeInfo(@TypeOf(obj)) == .error_union) {
-        if (obj) |not_err| dump(not_err)
-            else |err| dump(err);
-    } else {
-        switch (@TypeOf(obj)) {
-            Request => dump_request(obj),
-            Response => dump_response(obj),
-            *Client, *Persister => print("{*}", .{obj}),
-            ty.StoreId => print("'{s}'", .{obj.id}),
-            ty.BlobId => print("{s}", .{funcs.hashBytesToHex(obj)}),
-            ty.Blob => dump_blob(obj),
-            ty.StoreIds, ty.BlobIds => dump_array(obj),
-            ty.Response.SaveStatusBlobId => dump_tuple(.{obj.status, obj.blob_id}),
-            void => print("{{}}", .{}),
+    const Obj = @TypeOf(obj);
+    switch (Obj) {
+        Client, std.Io, std.process.Init => dump_struct_opaque(obj),
+        Request => dump_request(obj),
+        Response => dump_response(obj),
+        Persister, std.Io.Dir => dump_struct(obj),
+        ty.StoreId => print("'{s}'", .{obj.id}),
+        ty.BlobId => print("{s}", .{funcs.hashBytesToHex(obj)}),
+        ty.Blob => dump_blob(obj),
+        ty.StoreIds, ty.BlobIds => dump_array(obj),
+        ty.Response.SaveStatusBlobId => dump_tuple(.{obj.status, obj.blob_id}),
+        []const u8 => print("\"{s}\"", .{obj}),
+        void => print("{{}}", .{}),
+        else => switch (@typeInfo(Obj)) {
+            .error_union =>
+                if (obj) |not_err| dump(not_err)
+                    else |err| dump(err),
+            .pointer =>
+                print("{*}", .{obj}),
             else => print("{any}", .{obj}),
-        }
+        },
     }
 }
 
@@ -51,6 +56,23 @@ fn dump_array(array: anytype) void {
         if (index < array.len - 1) print(", ", .{});
     }
     print("]", .{});
+}
+
+fn dump_struct(obj: anytype) void {
+    const Obj = @TypeOf(obj);
+    print("{s}{{", .{@typeName(Obj)});
+    const fields = std.meta.fields(Obj);
+    inline for (fields, 0..) |field, index| {
+        print("{s} = ", .{field.name});
+        dump(@field(obj, field.name));
+        if (index < fields.len - 1) print(", ", .{});
+    }
+    print("}}", .{});
+}
+
+fn dump_struct_opaque(obj: anytype) void {
+    const Obj = @TypeOf(obj);
+    print("{s}{{..}}", .{@typeName(Obj)});
 }
 
 pub fn dump_request(request: Request) void {
