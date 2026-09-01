@@ -4,6 +4,8 @@ const print = std.debug.print;
 const ty = @import("types.zig");
 const Request = ty.Request;
 const Response = ty.Response;
+const Client = @import("Client.zig");
+const Persister = @import("Persister.zig");
 
 const funcs = @import("funcs.zig");
 
@@ -17,14 +19,22 @@ pub fn dump_tuple(tuple: anytype) void {
 }
 
 pub fn dump(obj: anytype) void {
-    switch (@TypeOf(obj)) {
-        Request => dump_request(obj),
-        Response => dump_response(obj),
-        ty.StoreId => print("'{s}'", .{obj.id}),
-        ty.BlobId => print("{s}", .{funcs.hashBytesToHex(obj)}),
-        ty.Blob => dump_blob(obj),
-        ty.StoreIds, ty.BlobIds => dump_array(obj),
-        else => print("{any}", .{obj}),
+    if (@typeInfo(@TypeOf(obj)) == .error_union) {
+        if (obj) |not_err| dump(not_err)
+            else |err| dump(err);
+    } else {
+        switch (@TypeOf(obj)) {
+            Request => dump_request(obj),
+            Response => dump_response(obj),
+            *Client, *Persister => print("{*}", .{obj}),
+            ty.StoreId => print("'{s}'", .{obj.id}),
+            ty.BlobId => print("{s}", .{funcs.hashBytesToHex(obj)}),
+            ty.Blob => dump_blob(obj),
+            ty.StoreIds, ty.BlobIds => dump_array(obj),
+            ty.Response.SaveStatusBlobId => dump_tuple(.{obj.status, obj.blob_id}),
+            void => print("{{}}", .{}),
+            else => print("{any}", .{obj}),
+        }
     }
 }
 

@@ -9,6 +9,7 @@ const StoreId = ty.StoreId;
 const BlobId = ty.BlobId;
 const Blob = ty.Blob;
 
+const log = @import("log.zig");
 const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
 const send_recv = @import("send_recv.zig");
@@ -63,40 +64,49 @@ pub fn close(self: *Self) void {
     self.stream.close(self.io);
 }
 
-pub fn store_list(self: *Self) !ty.StoreIds {
+pub const store_list = log.call(_store_list, "Client.store_list");
+fn _store_list(self: *Self) !ty.StoreIds {
     return try self.send_call_recv_result(.store_list, {});
 }
 
-pub fn store_create(self: *Self, store_id: StoreId) !void {
+pub const store_create = log.call(_store_create, "Client.store_create");
+fn _store_create(self: *Self, store_id: StoreId) !void {
     return try self.send_call_recv_result(.store_create, store_id);
 }
 
-pub fn store_destroy(self: *Self, store_id: StoreId) !void {
+pub const store_destroy = log.call(_store_destroy, "Client.store_destroy");
+fn _store_destroy(self: *Self, store_id: StoreId) !void {
     return try self.send_call_recv_result(.store_destroy, store_id);
 }
 
-pub fn blob_hash(self: *Self, blob: Blob) !ty.BlobId {
+pub const blob_hash = log.call(_blob_hash, "Client.blob_hash");
+fn _blob_hash(self: *Self, blob: Blob) !ty.BlobId {
     return try self.send_call_recv_result(.blob_hash, blob);
 }
 
-pub fn blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
+pub const blob_list = log.call(_blob_list, "Client.blob_list");
+fn _blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
     return try self.send_call_recv_result(.blob_list, store_id);
 }
 
-pub fn blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
+pub const blob_info = log.call(_blob_info, "Client.blob_info");
+fn _blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
     return try self.send_call_recv_result(.blob_info, .init(store_id, blob_id));
 }
 
-pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
+pub const blob_load = log.call(_blob_load, "Client.blob_load");
+fn _blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
     return try self.send_call_recv_result(.blob_load, .init(store_id, blob_id));
 }
 
-pub fn blob_save(self: *Self, store_id: StoreId, blob: Blob)
+pub const blob_save = log.call(_blob_save, "Client.blob_save");
+fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
         !Response.SaveStatusBlobId  {
     return try self.send_call_recv_result(.blob_save, .init(store_id, blob));
 }
 
-pub fn blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
+pub const blob_delete = log.call(_blob_delete, "Client.blob_delete");
+fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
     return try self.send_call_recv_result(.blob_delete, .init(store_id, blob_id));
 }
 

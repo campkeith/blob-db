@@ -8,6 +8,7 @@ const BlobId = ty.BlobId;
 const Blob = ty.Blob;
 const BlobSize = ty.BlobSize;
 
+const log = @import("log.zig");
 const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
 
@@ -33,7 +34,8 @@ pub fn destroy(self: *Self) void {
     self.base_dir.close(self.io);
 }
 
-pub fn store_list(self: *Self) !ty.StoreIds {
+pub const store_list = log.call(_store_list, "Persister.store_list");
+fn _store_list(self: *Self) !ty.StoreIds {
     var list: std.ArrayList(StoreId) = .empty;
     errdefer {
         for (list.items) |item| {
@@ -55,7 +57,8 @@ pub fn store_list(self: *Self) !ty.StoreIds {
     return try list.toOwnedSlice(mem.allocator);
 }
 
-pub fn store_create(self: *Self, store_id: StoreId) !void {
+pub const store_create = log.call(_store_create, "Persister.store_create");
+fn _store_create(self: *Self, store_id: StoreId) !void {
     self.base_dir.createDir(self.io, store_id.id, .default_dir) catch |err|
         return switch (err) {
             error.PathAlreadyExists => ty.Err.Exists,
@@ -64,7 +67,8 @@ pub fn store_create(self: *Self, store_id: StoreId) !void {
         };
 }
 
-pub fn store_destroy(self: *Self, store_id: StoreId) !void {
+pub const store_destroy = log.call(_store_destroy, "Persister.store_destroy");
+fn _store_destroy(self: *Self, store_id: StoreId) !void {
     // FIXME: randomly generate
     const tmp_dirname = "whatever";
     self.base_dir.rename(store_id.id, self.base_dir, tmp_dirname, self.io)
@@ -75,7 +79,8 @@ pub fn store_destroy(self: *Self, store_id: StoreId) !void {
     try self.base_dir.deleteTree(self.io, tmp_dirname);
 }
 
-pub fn blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
+pub const blob_list = log.call(_blob_list, "Persister.blob_list");
+fn _blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
     var list: std.ArrayList(BlobId) = .empty;
     errdefer list.deinit(mem.allocator);
     var store_dir = try self.open_store_dir(store_id);
@@ -93,7 +98,8 @@ pub fn blob_list(self: *Self, store_id: StoreId) !ty.BlobIds {
     return try list.toOwnedSlice(mem.allocator);
 }
 
-pub fn blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
+pub const blob_info = log.call(_blob_info, "Persister.blob_info");
+fn _blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
     var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = funcs.hashBytesToHex(blob_id);
@@ -108,7 +114,8 @@ pub fn blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
     return stat.size;
 }
 
-pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
+pub const blob_load = log.call(_blob_load, "Persister.blob_load");
+fn _blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
     var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = funcs.hashBytesToHex(blob_id);
@@ -126,7 +133,8 @@ pub fn blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
     }};
 }
 
-pub fn blob_save(self: *Self, store_id: StoreId, blob: Blob)
+pub const blob_save = log.call(_blob_save, "Persister.blob_save");
+fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
         !ty.Response.SaveStatusBlobId {
     var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
@@ -168,7 +176,8 @@ pub fn blob_save(self: *Self, store_id: StoreId, blob: Blob)
     return .init(.created, blob_id);
 }
 
-pub fn blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
+pub const blob_delete = log.call(_blob_delete, "Persister.blob_delete");
+fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
     var store_dir = try self.open_store_dir(store_id);
     defer store_dir.close(self.io);
 

@@ -53,7 +53,6 @@ pub fn send_not_welcome(out: *Writer) !void {
 }
 
 pub fn send_request(out: *Writer, request: Request) !void {
-    debug.dump(request);
     try switch (request) {
         .call => |call| send_call_request(out, call),
         .bye => send(out, CODE_BYE),
@@ -85,7 +84,6 @@ fn send_call_request(out: *Writer, call: Request.Call) !void {
 }
 
 pub fn send_response(out: *Writer, response: Response) !void {
-    debug.dump(response);
     try switch (response) {
         .call => |call| send_call_response(out, call),
         .err => |err| send(out, error_to_status(err)),
@@ -240,7 +238,6 @@ pub fn recv_request(in: *Reader) !Request {
         else => .{.call =
             try recv_call_request(in, try parse_enum_tag(CallTag, code))},
     };
-    debug.dump(request);
     return request;
 }
 
@@ -294,7 +291,6 @@ pub fn recv_response(in: *Reader, call_tag: CallTag) !Response {
         else =>
             .{.err = status_to_error(status)},
     };
-    debug.dump(response);
     return response;
 }
 
