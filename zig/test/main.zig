@@ -8,6 +8,7 @@ const BlobId = ty.BlobId;
 const mem = @import("blob-db/mem.zig");
 const funcs = @import("blob-db/funcs.zig");
 const debug = @import("blob-db/debug.zig");
+const struct_ = @import("blob-db/struct_.zig");
 const Client = @import("blob-db/Client.zig");
 
 const fake = @import("fake.zig");
@@ -97,35 +98,32 @@ fn go(rig: *TestRig, iterations: u64) !void {
     const Func = *const fn (*TestRig) anyerror!void;
     const Weight = f32;
 
-    const FuncWeightPair = struct {Func, Weight};
-    const ops = [_]FuncWeightPair{
-        .{test_store_list, 0.2},
-        .{test_store_create, 0.2},
-        .{test_store_destroy, 0.1},
-        .{test_blob_hash, 1},
-        .{test_blob_list, 2},
-        .{test_blob_info, 1},
-        .{test_blob_load, 1},
-        .{test_blob_save, 1},
-        .{test_blob_delete, 1},
+    const FuncWeightPair = struct {
+        func: Func,
+        weight: Weight,
+        const init = struct_.Init(@This());
     };
-    const weights = unzip_col(ops, 1);
+    const ops = [_]FuncWeightPair{
+        .init(test_store_list, 0.2),
+        .init(test_store_create, 0.2),
+        .init(test_store_destroy, 0.1),
+        .init(test_blob_hash, 1),
+        .init(test_blob_list, 2),
+        .init(test_blob_info, 1),
+        .init(test_blob_load, 1),
+        .init(test_blob_save, 1),
+        .init(test_blob_delete, 1),
+    };
+    const weights = funcs.map(ops, funcs.structField(FuncWeightPair, "weight"));
     try test_store_list(rig);
     for (0..iterations) |_| {
         const index = rig.rng.weightedIndex(Weight, &weights);
-        const op, _ = ops[index];
-        try op(rig);
+        const op = ops[index];
+        try op.func(rig);
     }
     while (rig.db.count() != 0) {
         try test_store_destroy(rig);
     }
-}
-
-fn unzip_col(matrix: anytype, comptime index: usize)
-        [matrix.len]@TypeOf(matrix[0][index]) {
-    var out: [matrix.len]@TypeOf(matrix[0][index]) = undefined;
-    for (matrix, &out) |row, *out_elem| out_elem.* = row[index];
-    return out;
 }
 
 fn test_store_list(rig: *TestRig) anyerror!void {

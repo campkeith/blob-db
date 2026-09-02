@@ -158,3 +158,22 @@ pub fn pairGen(A: type, B: type) type {
     };
     return Pair;
 }
+
+pub fn map(array_in: anytype, func: anytype)
+        [array_in.len]@typeInfo(@TypeOf(func)).@"fn".return_type.? {
+    const ElemOut = @typeInfo(@TypeOf(func)).@"fn".return_type.?;
+    var array_out: [array_in.len]ElemOut = undefined;
+    inline for (array_in, &array_out) |elem_in, *elem_out| {
+        elem_out.* = func(elem_in);
+    }
+    return array_out;
+}
+
+pub fn structField(Obj: type, comptime name: []const u8)
+        fn(Obj) @FieldType(Obj, name) {
+    return struct {
+        fn go(obj: Obj) @FieldType(Obj, name) {
+            return @field(obj, name);
+        }
+    }.go;
+}

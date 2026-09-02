@@ -1,8 +1,11 @@
 const std = @import("std");
+const Type = std.builtin.Type;
 
-pub fn Init(Obj: type) ret: {
+const funcs = @import("funcs.zig");
+
+pub fn Init(Obj: type) Return: {
     const types = fieldTypes(Obj);
-    break :ret switch (types.len) {
+    break :Return switch (types.len) {
         0 => fn() Obj,
         1 => fn(types[0]) Obj,
         2 => fn(types[0], types[1]) Obj,
@@ -32,11 +35,7 @@ pub fn Init(Obj: type) ret: {
 
 fn fieldTypes(Obj: type) [std.meta.fields(Obj).len]type {
     const fields = std.meta.fields(Obj);
-    var out: [fields.len]type = undefined;
-    inline for (fields, 0..) |field, index| {
-        out[index] = field.type;
-    }
-    return out;
+    return funcs.map(fields, funcs.structField(Type.StructField, "type"));
 }
 
 fn makeStruct(Obj: type, initializer: anytype) Obj {

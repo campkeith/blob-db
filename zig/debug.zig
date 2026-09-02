@@ -14,7 +14,7 @@ fn Formatter(Obj: type) type {
     return struct {
         obj: Obj,
 
-        pub fn format(self: Formatter, out: *Writer) !void {
+        pub fn format(self: @This(), out: *Writer) !void {
             return format_obj(self.obj, out);
         }
     };
