@@ -10,6 +10,7 @@ const BlobSize = ty.BlobSize;
 
 const log = @import("log.zig");
 const mem = @import("mem.zig");
+const debug = @import("debug.zig");
 const funcs = @import("funcs.zig");
 
 const Self = @This();
@@ -34,6 +35,10 @@ fn _create(init: std.process.Init) !Self {
 pub const destroy = log.call(Self, "destroy", _destroy);
 fn _destroy(self: *Self) void {
     self.base_dir.close(self.io);
+}
+
+pub fn format(self: Self, out: *std.Io.Writer) !void {
+    return debug.format_struct_opaque(self, out);
 }
 
 pub const store_list = log.call(Self, "store_list", _store_list);

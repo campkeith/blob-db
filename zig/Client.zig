@@ -12,6 +12,7 @@ const Blob = ty.Blob;
 const log = @import("log.zig");
 const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
+const debug = @import("debug.zig");
 const send_recv = @import("send_recv.zig");
 
 const Self = @This();
@@ -64,6 +65,10 @@ fn _close(self: *Self) void {
     mem.free(self.read_buf);
     mem.free(self.write_buf);
     self.stream.close(self.io);
+}
+
+pub fn format(self: Self, out: *std.Io.Writer) !void {
+    return debug.format_struct_opaque(self, out);
 }
 
 pub const store_list = log.call(Self, "store_list", _store_list);

@@ -1,140 +1,80 @@
 const std = @import("std");
+const Writer = std.Io.Writer;
 const print = std.debug.print;
 
 const ty = @import("types.zig");
-const Request = ty.Request;
-const Response = ty.Response;
-const Client = @import("Client.zig");
-const Persister = @import("Persister.zig");
 
 const funcs = @import("funcs.zig");
 
-pub fn dump_tuple(tuple: anytype) void {
-    print("(", .{});
-    inline for (tuple, 0..) |item, index| {
-        dump(item);
-        if (index < tuple.len - 1) print(", ", .{});
-    }
-    print(")", .{});
+pub fn Fmt(obj: anytype) Formatter(@TypeOf(obj)) {
+    return Formatter(@TypeOf(obj)){.obj = obj};
 }
 
-pub fn dump(obj: anytype) void {
+fn Formatter(Obj: type) type {
+    return struct {
+        obj: Obj,
+
+        pub fn format(self: Formatter, out: *Writer) !void {
+            return format_obj(self.obj, out);
+        }
+    };
+}
+
+pub fn format_obj(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
-    switch (Obj) {
-        Client, std.Io, std.process.Init => dump_struct_opaque(obj),
-        Request => dump_request(obj),
-        Response => dump_response(obj),
-        Persister, std.Io.Dir => dump_struct(obj),
-        ty.StoreId => print("'{s}'", .{obj.id}),
-        ty.BlobId => print("{s}", .{funcs.hashBytesToHex(obj)}),
-        ty.Blob => dump_blob(obj),
-        ty.StoreIds, ty.BlobIds => dump_array(obj),
-        ty.Response.SaveStatusBlobId => dump_tuple(.{obj.status, obj.blob_id}),
-        []const u8 => print("\"{s}\"", .{obj}),
-        void => print("{{}}", .{}),
+    if ((@typeInfo(Obj) == .@"struct" or @typeInfo(Obj) == .@"union")
+            and @hasDecl(Obj, "format")) {
+        try obj.format(out);
+    } else try switch (Obj) {
+        []const u8 => out.print("\"{s}\"", .{obj}),
+        ty.BlobId => out.print("{s}", .{funcs.hashBytesToHex(obj)}),
         else => switch (@typeInfo(Obj)) {
             .error_union =>
-                if (obj) |not_err| dump(not_err)
-                    else |err| dump(err),
-            .pointer =>
-                print("{*}", .{obj}),
-            else => print("{any}", .{obj}),
+                if (obj) |not_err| format_obj(not_err, out)
+                    else |err| out.print("{t}", .{err}),
+            .pointer => |pointer| switch (pointer.size) {
+                .slice => format_array(obj, out),
+                else => out.print("{*}", .{obj}),
+            },
+            .@"struct" => |struct_|
+                if (struct_.is_tuple) format_tuple(obj, out)
+                else format_struct_opaque(obj, out),
+            .void => out.writeAll("{}"),
+            else => out.print("{any}", .{obj}),
         },
+    };
+}
+
+pub fn format_tuple(tuple: anytype, out: *Writer) !void {
+    try out.writeAll("(");
+    inline for (tuple, 0..) |item, index| {
+        try format_obj(item, out);
+        if (index < tuple.len - 1) try out.writeAll(", ");
     }
+    try out.writeAll(")");
 }
 
-fn dump_blob(blob: ty.Blob) void {
-    const type_ = std.meta.activeTag(blob);
-    const size = funcs.blobSize(blob) catch 0;
-    print("Blob(type = {any}, size = {d})", .{type_, size});
-}
-
-fn dump_array(array: anytype) void {
-    print("[", .{});
+pub fn format_array(array: anytype, out: *Writer) !void {
+    try out.writeAll("[");
     for (array, 0..) |item, index| {
-        dump(item);
-        if (index < array.len - 1) print(", ", .{});
+        try format_obj(item, out);
+        if (index < array.len - 1) try out.writeAll(", ");
     }
-    print("]", .{});
+    try out.writeAll("]");
 }
 
-fn dump_struct(obj: anytype) void {
+pub fn format_struct(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
-    print("{s}{{", .{@typeName(Obj)});
+    try out.print("{s}{{", .{@typeName(Obj)});
     const fields = std.meta.fields(Obj);
     inline for (fields, 0..) |field, index| {
-        print("{s} = ", .{field.name});
-        dump(@field(obj, field.name));
-        if (index < fields.len - 1) print(", ", .{});
+        try out.print("{s} = {f}", .{field.name, Fmt(@field(obj, field.name))});
+        if (index < fields.len - 1) try out.writeAll(", ");
     }
-    print("}}", .{});
+    out.writeAll("}");
 }
 
-fn dump_struct_opaque(obj: anytype) void {
+pub fn format_struct_opaque(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
-    print("{s}{{..}}", .{@typeName(Obj)});
-}
-
-pub fn dump_request(request: Request) void {
-    switch (request) {
-        .call => |call| dump_call_request(call),
-        .bye => print("bye", .{}),
-    }
-    print("\n", .{});
-}
-
-fn dump_call_request(call: Request.Call) void {
-    switch (call) {
-        .store_list =>
-            dump_call("store_list", .{}),
-        .store_create => |store_id|
-            dump_call("store_create", .{store_id}),
-        .store_destroy => |store_id|
-            dump_call("store_destroy", .{store_id}),
-        .blob_hash => |blob|
-            dump_call("blob_hash", .{blob}),
-        .blob_list => |store_id|
-            dump_call("blob_list", .{store_id}),
-        .blob_info => |args|
-            dump_call("blob_info", .{args.store_id, args.blob_id}),
-        .blob_load => |args|
-            dump_call("blob_load", .{args.store_id, args.blob_id}),
-        .blob_save => |args|
-            dump_call("blob_save", .{args.store_id, args.blob}),
-        .blob_delete => |args|
-            dump_call("blob_delete", .{args.store_id, args.blob_id}),
-    }
-}
-
-fn dump_call(name: []const u8, args: anytype) void {
-    print("{s}", .{name});
-    dump_tuple(args);
-}
-
-pub fn dump_response(response: Response) void {
-    print("-> ", .{});
-    switch (response) {
-        .call => |call| dump_call_response(call),
-        .err => |err| print("{any}", .{err}),
-    }
-    print("\n", .{});
-}
-
-fn dump_call_response(call: Response.Call) void {
-    switch (call) {
-        .store_list => |store_ids|
-            dump(store_ids),
-        .blob_hash => |blob_id|
-            dump(blob_id),
-        .blob_list => |blob_ids|
-            dump(blob_ids),
-        .blob_info => |size|
-            dump(size),
-        .blob_load => |blob|
-            dump(blob),
-        .blob_save => |result|
-            dump_tuple(.{result.status, result.blob_id}),
-        .store_create, .store_destroy, .blob_delete =>
-            print("ok", .{}),
-    }
+    try out.print("{s}{{..}}", .{@typeName(Obj)});
 }

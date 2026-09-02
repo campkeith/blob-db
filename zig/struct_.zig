@@ -30,14 +30,13 @@ pub fn Init(Obj: type) ret: {
     };
 }
 
-fn fieldTypes(Obj: type) []const type {
+fn fieldTypes(Obj: type) [std.meta.fields(Obj).len]type {
     const fields = std.meta.fields(Obj);
-    var out: [16]type = undefined;
+    var out: [fields.len]type = undefined;
     inline for (fields, 0..) |field, index| {
         out[index] = field.type;
     }
-    const out_copy = out;
-    return out_copy[0..fields.len];
+    return out;
 }
 
 fn makeStruct(Obj: type, initializer: anytype) Obj {

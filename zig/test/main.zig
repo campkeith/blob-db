@@ -56,7 +56,7 @@ fn parse_core_args(args: std.process.Args.Vector) !Args {
 
 const TestRig = struct {
     const MIN_STORE_ID_SIZE: usize = 8;
-    const MAX_STORE_ID_SIZE: usize = 64;
+    const MAX_STORE_ID_SIZE: usize = 32;
     const MIN_BLOB_SIZE: usize = 8;
     const MAX_BLOB_SIZE: usize = 1 << 20;
     const LOAD_PERCENT = std.hash_map.default_max_load_percentage;

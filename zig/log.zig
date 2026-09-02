@@ -7,54 +7,46 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
         @TypeOf(func) {
     const full_name = @typeName(Parent) ++ "." ++ name;
     const Func = @typeInfo(@TypeOf(func)).@"fn";
-    const Args = args_tuple(Func.params);
+    const Args = argTypes(Func.params);
     const Return = Func.return_type.?;
 
     comptime return switch(Args.len) {
         0 => struct {
             fn inner() Return {
-                return args_call_ret(func, .{}, full_name);
+                return argsCallRet(func, .{}, full_name);
             }
         }.inner,
         1 => struct {
             fn inner(a: Args[0]) Return {
-                return args_call_ret(func, .{a}, full_name);
+                return argsCallRet(func, .{a}, full_name);
             }
         }.inner,
         2 => struct {
             fn inner(a: Args[0], b: Args[1]) Return {
-                return args_call_ret(func, .{a, b}, full_name);
+                return argsCallRet(func, .{a, b}, full_name);
             }
         }.inner,
         3 => struct {
             fn inner(a: Args[0], b: Args[1], c: Args[2]) Return {
-                return args_call_ret(func, .{a, b, c}, full_name);
+                return argsCallRet(func, .{a, b, c}, full_name);
             }
         }.inner,
         else => unreachable,
     };
 }
 
-fn args_tuple(params: []const std.builtin.Type.Fn.Param) []const type {
-    var out: [16]type = undefined;
+fn argTypes(params: []const std.builtin.Type.Fn.Param) [params.len]type {
+    var out: [params.len]type = undefined;
     inline for (params, 0..) |param, index| {
         out[index] = param.type.?;
     }
-    const out_copy = out;
-    return out_copy[0..params.len];
+    return out;
 }
 
-fn args_call_ret(comptime func: anytype, args: anytype, name: []const u8)
+fn argsCallRet(comptime func: anytype, args: anytype, name: []const u8)
         @typeInfo(@TypeOf(func)).@"fn".return_type.? {
-    funcs.debug("{s}", .{name});
-    debug.dump_tuple(args);
-    funcs.debug(":\n", .{});
-
+    funcs.debug("{s}{f}:\n", .{name, debug.Fmt(args)});
     const result = @call(.auto, func, args);
-
-    funcs.debug("{s} -> ", .{name});
-    debug.dump(result);
-    funcs.debug("\n", .{});
-
+    funcs.debug("{s} -> {f}\n", .{name, debug.Fmt(result)});
     return result;
 }

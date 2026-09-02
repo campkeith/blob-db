@@ -1,6 +1,8 @@
 const std = @import("std");
+const Writer = std.Io.Writer;
 
 const struct_ = @import("struct_.zig");
+const funcs = @import("funcs.zig");
 const mem = @import("mem.zig");
 
 pub const CallTag = enum(Code) {
@@ -96,6 +98,11 @@ pub const Response = union(enum) {
         blob_id: BlobId,
 
         pub const init = struct_.Init(@This());
+
+        pub fn format(self: SaveStatusBlobId, writer: *Writer) !void {
+            try writer.print("{{{t}, {s}}}",
+                .{self.status, funcs.hashBytesToHex(self.blob_id)});
+        }
     };
 
     pub const SaveStatus = enum {
@@ -123,8 +130,13 @@ pub const StoreId = struct {
     id: []const u8,
 
     pub const init = struct_.Init(@This());
+
+    pub fn format(self: StoreId, writer: *Writer) !void {
+        try writer.print("\"{s}\"", .{self.id});
+    }
 };
 pub const StoreIds = []StoreId;
+
 pub const BlobId = [32]u8;
 pub const BlobIdStr = [64]u8;
 pub const BlobIds = []BlobId;
@@ -167,6 +179,12 @@ pub const Blob = union(enum) {
             .file => |file| file.close(),
             .memory => {},
         }
+    }
+
+    pub fn format(self: Blob, out: *Writer) !void {
+        const tag = std.meta.activeTag(self);
+        const size = funcs.blobSize(self) catch 0;
+        try out.print("Blob(type = {t}, size = {d})", .{tag, size});
     }
 };
 
