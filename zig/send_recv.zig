@@ -346,7 +346,7 @@ fn recv_store_id(in: *Reader) !ty.StoreId {
     const size = try recv(in, StoreIdSize);
     const store_id = try mem.alloc(u8, size);
     try recv_array(in, u8, store_id);
-    return .{.id = store_id};
+    return .init(store_id);
 }
 
 fn recv_blob_ids(in: *Reader) !ty.BlobIds {

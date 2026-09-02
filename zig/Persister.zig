@@ -54,7 +54,7 @@ fn _store_list(self: *Self) !ty.StoreIds {
         }
         const name = try mem.dupe(u8, entry.name);
         errdefer mem.free(name);
-        try list.append(mem.allocator, .{.id = name});
+        try list.append(mem.allocator, .init(name));
     }
     return try list.toOwnedSlice(mem.allocator);
 }

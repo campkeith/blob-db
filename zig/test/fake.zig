@@ -15,7 +15,7 @@ pub fn store_id(rng: *std.Random, min_size: usize, max_size: usize) !ty.StoreId 
         const index = rng.uintLessThan(usize, alphabet.len);
         char.* = alphabet[index];
     }
-    return .{.id = id};
+    return .init(id);
 }
 
 pub fn blob_id(rng: *std.Random) ty.BlobId {

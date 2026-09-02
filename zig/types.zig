@@ -1,5 +1,6 @@
 const std = @import("std");
 
+const struct_ = @import("struct_.zig");
 const mem = @import("mem.zig");
 
 pub const CallTag = enum(Code) {
@@ -44,18 +45,14 @@ pub const Request = union(enum) {
         store_id: StoreId,
         blob_id: BlobId,
 
-        pub fn init(store_id: StoreId, blob_id: BlobId) StoreIdBlobId {
-            return .{.store_id = store_id, .blob_id = blob_id};
-        }
+        pub const init = struct_.Init(@This());
     };
 
     pub const StoreIdBlob = struct {
         store_id: StoreId,
         blob: Blob,
 
-        pub fn init(store_id: StoreId, blob: Blob) StoreIdBlob {
-            return .{.store_id = store_id, .blob = blob};
-        }
+        pub const init = struct_.Init(@This());
 
         pub fn deinit(self: StoreIdBlob) void {
             self.blob.deinit();
@@ -98,9 +95,7 @@ pub const Response = union(enum) {
         status: SaveStatus,
         blob_id: BlobId,
 
-        pub fn init(status: SaveStatus, blob_id: BlobId) @This() {
-            return .{.status = status, .blob_id = blob_id};
-        }
+        pub const init = struct_.Init(@This());
     };
 
     pub const SaveStatus = enum {
@@ -126,6 +121,8 @@ pub const Err = error{
 
 pub const StoreId = struct {
     id: []const u8,
+
+    pub const init = struct_.Init(@This());
 };
 pub const StoreIds = []StoreId;
 pub const BlobId = [32]u8;
