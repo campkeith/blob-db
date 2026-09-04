@@ -2,15 +2,16 @@ const std = @import("std");
 const File = std.Io.File;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
 
 const ty = @import("types.zig");
 const CallTag = ty.CallTag;
 const Request = ty.Request;
 const Response = ty.Response;
 
-const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
 const debug = @import("debug.zig");
+const struct_ = @import("struct_.zig");
 
 const ReaderWriterError = Writer.Error || Reader.Error;
 
@@ -209,20 +210,27 @@ fn send_array(out: *Writer, array: anytype) !void {
 }
 
 
+pub const Receiver = struct {
+    reader: *Reader,
+    arena: ?Allocator,
+
+    pub const init = struct_.Init(@This());
+};
+
 pub fn recv_open_door(in: *Reader) !void {
-    const open_door = try recv(in, ty.Code);
-    const proto_version = try recv(in, ProtoVersion);
+    const open_door = try recv_int(in, ty.Code);
+    const proto_version = try recv_int(in, ProtoVersion);
     if (open_door != CODE_OPEN_DOOR or proto_version != PROTO_VERSION) {
         return ty.Err.BadArgument;
     }
 }
 
 pub fn recv_welcome(in: *Reader) !void {
-    const code = try recv(in, GreetCode);
+    const code = try recv_enum(in, GreetCode);
     return switch (code) {
         .welcome => {},
         .not_welcome => out: {
-            const proto_version = try recv(in, ProtoVersion);
+            const proto_version = try recv_int(in, ProtoVersion);
             funcs.debug("recv_welcome: server says we are not welcome; "
                         ++ "client: v{d}, server: v{d}",
                         .{PROTO_VERSION, proto_version});
@@ -231,17 +239,18 @@ pub fn recv_welcome(in: *Reader) !void {
     };
 }
 
-pub fn recv_request(in: *Reader) !Request {
-    const code = try recv(in, ty.Code);
+pub fn recv_request(in: *Reader, arena: Allocator) !Request {
+    const code = try recv_int(in, ty.Code);
     const request: Request = switch (code) {
         CODE_BYE => .bye,
         else => .{.call =
-            try recv_call_request(in, try parse_enum_tag(CallTag, code))},
+            try recv_call_request(.init(in, arena),
+                                  try parse_enum_tag(CallTag, code))},
     };
     return request;
 }
 
-fn recv_call_request(in: *Reader, call_tag: CallTag) !Request.Call {
+fn recv_call_request(in: Receiver, call_tag: CallTag) !Request.Call {
     return switch(call_tag) {
         .store_list =>
             .store_list,
@@ -264,7 +273,7 @@ fn recv_call_request(in: *Reader, call_tag: CallTag) !Request.Call {
     };
 }
 
-pub fn recv_response(in: *Reader, call_tag: CallTag) !Response {
+pub fn recv_response(in: Receiver, call_tag: CallTag) !Response {
     const status = try recv(in, Status);
     const Pair = funcs.pairGen(@TypeOf(status), @TypeOf(call_tag));
     const response: Response = switch (Pair.make(status, call_tag)) {
@@ -308,7 +317,7 @@ fn status_to_error(status: Status) ty.Err {
     };
 }
 
-fn recv(in: *Reader, ObjType: type) !ObjType {
+fn recv(in: Receiver, ObjType: type) !ObjType {
     return switch (ObjType) {
         Request.StoreIdBlobId, Request.StoreIdBlob, Response.SaveStatusBlobId =>
             try recv_tuple(in, ObjType),
@@ -319,13 +328,13 @@ fn recv(in: *Reader, ObjType: type) !ObjType {
         ty.BlobIds =>
             try recv_blob_ids(in),
         ty.BlobId =>
-            try recv_blob_id(in),
+            try recv_blob_id(in.reader),
         ty.Blob =>
             try recv_blob(in),
         GreetCode, CallTag, Status =>
-            try recv_enum(in, ObjType),
+            try recv_enum(in.reader, ObjType),
         u16, u64 =>
-            try in.takeInt(ObjType, .little),
+            try recv_int(in.reader, ObjType),
         else => {
             funcs.debug("recv: {any} is not supported.\n", .{ObjType});
             return ty.Err.Internal;
@@ -333,26 +342,28 @@ fn recv(in: *Reader, ObjType: type) !ObjType {
     };
 }
 
-fn recv_store_ids(in: *Reader) !ty.StoreIds {
-    const array_size = try recv(in, ArraySize);
-    const store_ids = try mem.alloc(ty.StoreId, array_size);
+fn recv_store_ids(in: Receiver) !ty.StoreIds {
+    const array_size = try recv_int(in.reader, ArraySize);
+    const store_ids = try in.arena.?.alloc(ty.StoreId, array_size);
     for (store_ids) |*store_id| {
         store_id.* = try recv_store_id(in);
     }
     return store_ids;
 }
 
-fn recv_store_id(in: *Reader) !ty.StoreId {
-    const size = try recv(in, StoreIdSize);
-    const store_id = try mem.alloc(u8, size);
-    try recv_array(in, u8, store_id);
+fn recv_store_id(in: Receiver) !ty.StoreId {
+    const size = try recv_int(in.reader, StoreIdSize);
+    const store_id = try in.arena.?.alloc(u8, size);
+    errdefer in.arena.?.free(store_id);
+    try recv_array(in.reader, u8, store_id);
     return .init(store_id);
 }
 
-fn recv_blob_ids(in: *Reader) !ty.BlobIds {
-    const array_size = try recv(in, ArraySize);
-    const blob_ids = try mem.alloc(ty.BlobId, array_size);
-    try recv_array(in, u8, std.mem.sliceAsBytes(blob_ids));
+fn recv_blob_ids(in: Receiver) !ty.BlobIds {
+    const array_size = try recv_int(in.reader, ArraySize);
+    const blob_ids = try in.arena.?.alloc(ty.BlobId, array_size);
+    errdefer in.arena.?.free(blob_ids);
+    try recv_array(in.reader, u8, std.mem.sliceAsBytes(blob_ids));
     return blob_ids;
 }
 
@@ -362,12 +373,12 @@ fn recv_blob_id(in: *Reader) !ty.BlobId {
     return blob_id;
 }
 
-fn recv_blob(in: *Reader) !ty.Blob {
-    const array_size = try recv(in, ArraySize);
-    const stream = try mem.create(ty.Blob.Stream);
-    errdefer mem.free(stream);
+fn recv_blob(in: Receiver) !ty.Blob {
+    const array_size = try recv_int(in.reader, ArraySize);
+    const stream = try in.arena.?.create(ty.Blob.Stream);
+    errdefer in.arena.?.free(stream);
     stream.* = .{
-        .reader = in,
+        .reader = in.reader,
         .bytes_left = array_size,
     };
     return .{.stream = stream};
@@ -379,6 +390,10 @@ fn recv_enum(in: *Reader, Enum: type) !Enum {
     return parse_enum_tag(Enum, tag);
 }
 
+fn recv_int(in: *Reader, IntType: type) !IntType {
+    return try in.takeInt(IntType, .little);
+}
+
 fn parse_enum_tag(Enum: type, tag: anytype) !Enum {
     return if (std.enums.fromInt(Enum, tag)) |val| val else out: {
         funcs.debug("parse_enum_tag: '{s}' is not a {s} value.\n",
@@ -387,7 +402,7 @@ fn parse_enum_tag(Enum: type, tag: anytype) !Enum {
     };
 }
 
-fn recv_tuple(in: *Reader, comptime Tuple: anytype) !Tuple {
+fn recv_tuple(in: Receiver, comptime Tuple: anytype) !Tuple {
     var out: Tuple = undefined;
     inline for (std.meta.fields(Tuple)) |field| {
         @field(out, field.name) = try recv(in, field.type);

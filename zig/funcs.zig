@@ -1,9 +1,10 @@
 const std = @import("std");
+const Random = std.Random;
 const Environ = std.process.Environ;
+const Allocator = std.mem.Allocator;
 const Hasher = std.crypto.hash.sha2.Sha256;
 
 const ty = @import("types.zig");
-const mem = @import("mem.zig");
 
 const CHUNK_SIZE: usize = 64 * 1024;
 
@@ -18,20 +19,12 @@ pub fn debug(comptime format: []const u8, args: anytype) void {
     std.debug.print(format, args);
 }
 
-pub fn blobSize(blob: ty.Blob) !ty.Blob.Size {
-    return switch (blob) {
-        .stream => |in| in.bytes_left,
-        .file => |file| try file.file.length(file.io),
-        .memory => |bytes| bytes.len,
-    };
-}
-
-pub fn hashBlob(blob: ty.Blob) !ty.BlobId {
+pub fn hashBlob(alloc: Allocator, blob: ty.Blob) !ty.BlobId {
     return switch (blob) {
         .stream => |in| out: {
             var hasher = Hasher.init(.{});
-            var chunk = try mem.alloc(u8, CHUNK_SIZE);
-            defer mem.free(chunk);
+            var chunk = try alloc.alloc(u8, CHUNK_SIZE);
+            defer alloc.free(chunk);
             while (in.bytes_left > 0) {
                 const slice = chunk[0 .. @min(in.bytes_left, CHUNK_SIZE)];
                 try in.reader.readSliceAll(slice);
@@ -176,4 +169,18 @@ pub fn structField(Obj: type, comptime name: []const u8)
             return @field(obj, name);
         }
     }.go;
+}
+
+pub fn randomNameAlloc(rng: Random, arena: Allocator, size: usize) ![]u8 {
+    const name = try arena.alloc(u8, size);
+    randomName(rng, name);
+    return name;
+}
+
+pub fn randomName(rng: Random, name_out: []u8) void {
+    const alphabet = std.fs.base64_alphabet;
+    for (name_out) |*char| {
+        const index = rng.uintLessThan(usize, alphabet.len);
+        char.* = alphabet[index];
+    }
 }

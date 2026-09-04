@@ -1,38 +1,36 @@
 const std = @import("std");
+const Random = std.Random;
+const Allocator = std.mem.Allocator;
 
 const ty = @import("blob-db/types.zig");
-const mem = @import("blob-db/mem.zig");
 const funcs = @import("blob-db/funcs.zig");
 
 pub const StoreId = []u8;
 pub const Blob = []u8;
 
-pub fn store_id(rng: *std.Random, min_size: usize, max_size: usize) !ty.StoreId {
+pub fn store_id(rng: Random, arena: Allocator,
+                min_size: usize, max_size: usize) !ty.StoreId {
     const size = size_geometric(rng, min_size, max_size);
-    const alphabet = std.fs.base64_alphabet;
-    const id = try mem.alloc(u8, size);
-    for (id) |*char| {
-        const index = rng.uintLessThan(usize, alphabet.len);
-        char.* = alphabet[index];
-    }
+    const id = try funcs.randomNameAlloc(rng, arena, size);
     return .init(id);
 }
 
-pub fn blob_id(rng: *std.Random) ty.BlobId {
+pub fn blob_id(rng: Random) ty.BlobId {
     var out: ty.BlobId = undefined;
     rng.bytes(&out);
     return out;
 }
 
-pub fn blob(rng: *std.Random, min_size: usize, max_size: usize) !Blob {
+pub fn blob(rng: Random, arena: Allocator,
+            min_size: usize, max_size: usize) !Blob {
     const size = size_geometric(rng, min_size, max_size);
-    const out = try mem.alloc(u8, size);
-    errdefer mem.free(out);
+    const out = try arena.alloc(u8, size);
+    errdefer arena.free(out);
     rng.bytes(out);
     return out;
 }
 
-pub fn size_geometric(rng: *std.Random, min_size: usize, max_size: usize) usize {
+pub fn size_geometric(rng: Random, min_size: usize, max_size: usize) usize {
     // We add one as max_size is an inclusive upper-bound while the uniform
     // random distribution and floor quantization exclude the upper-bound.
     const min_f64: f64 = @floatFromInt(min_size);

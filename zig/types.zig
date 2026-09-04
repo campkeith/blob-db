@@ -3,7 +3,6 @@ const Writer = std.Io.Writer;
 
 const struct_ = @import("struct_.zig");
 const funcs = @import("funcs.zig");
-const mem = @import("mem.zig");
 
 pub const CallTag = enum(Code) {
     store_list = encode8("storlist"),
@@ -36,8 +35,7 @@ pub const Request = union(enum) {
 
         pub fn deinit(self: Call) void {
             switch (self) {
-                .blob_hash => |*blob| blob.deinit(),
-                .blob_save => |*args| args.deinit(),
+                .blob_save => |store_id_blob| store_id_blob.deinit(),
                 else => {},
             }
         }
@@ -63,7 +61,7 @@ pub const Request = union(enum) {
 
     pub fn deinit(self: Request) void {
         switch (self) {
-            .call => |*call| call.deinit(),
+            .call => |call| call.deinit(),
             else => {},
         }
     }
@@ -118,7 +116,7 @@ pub const Response = union(enum) {
     }
 };
 
-pub const Err = error{
+pub const Err = error {
     Exists,
     NotFound,
     NoSpace,
@@ -168,14 +166,15 @@ pub const Blob = union(enum) {
         pub fn close(self: File) void {
             self.file.close(self.io);
         }
+
+        pub fn size(self: File) !usize {
+            return try self.file.length(self.io);
+        }
     };
 
     pub fn deinit(self: Blob) void {
         switch (self) {
-            .stream => |stream| {
-                stream.discard();
-                mem.destroy(stream);
-            },
+            .stream => |stream| stream.discard(),
             .file => |file| file.close(),
             .memory => {},
         }
@@ -183,8 +182,16 @@ pub const Blob = union(enum) {
 
     pub fn format(self: Blob, out: *Writer) !void {
         const tag = std.meta.activeTag(self);
-        const size = funcs.blobSize(self) catch 0;
-        try out.print("Blob(type = {t}, size = {d})", .{tag, size});
+        const size_: ?Size = self.size() catch null;
+        try out.print("Blob(type = {t}, size = {?d})", .{tag, size_});
+    }
+
+    pub fn size(self: Blob) !Size {
+        return switch (self) {
+            .stream => |in| in.bytes_left,
+            .file => |file| try file.size(),
+            .memory => |bytes| bytes.len,
+        };
     }
 };
 

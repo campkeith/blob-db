@@ -32,6 +32,11 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
                 return argsCallRet(func, .{a, b, c}, full_name);
             }
         }.inner,
+        4 => struct {
+            fn inner(a: Args[0], b: Args[1], c: Args[2], d: Args[3]) Return {
+                return argsCallRet(func, .{a, b, c, d}, full_name);
+            }
+        }.inner,
         else => unreachable,
     };
 }

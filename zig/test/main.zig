@@ -1,11 +1,13 @@
 const std = @import("std");
+const Random = std.Random;
+const Allocator = std.mem.Allocator;
+
 const testing = std.testing;
 
 const ty = @import("blob-db/types.zig");
 const StoreId = ty.StoreId;
 const BlobId = ty.BlobId;
 
-const mem = @import("blob-db/mem.zig");
 const funcs = @import("blob-db/funcs.zig");
 const debug = @import("blob-db/debug.zig");
 const struct_ = @import("blob-db/struct_.zig");
@@ -20,16 +22,16 @@ const Args = struct {
 
 pub fn main(init: std.process.Init) !void {
     const args = parse_args(init.minimal.args);
-    var client = try Client.connect(init.io, args.address);
-    defer client.close();
-    var db = TestRig.Db.init(mem.allocator);
+    var client = try Client.connect(init.io, init.gpa, args.address);
+    defer client.close(init.gpa);
+    var db = TestRig.Db.init(init.gpa);
     defer db.deinit();
-    var rng_impl = std.Random.DefaultPrng.init(0);
-    var rng = rng_impl.random();
+    var rng = Random.DefaultPrng.init(0);
     var rig = TestRig{
         .client = &client,
         .db = &db,
-        .rng = &rng,
+        .arena = init.gpa,
+        .rng = rng.random(),
     };
     try go(&rig, args.iterations);
 }
@@ -67,39 +69,40 @@ const TestRig = struct {
 
     client: *Client,
     db: *Db,
-    rng: *std.Random,
-};
+    arena: Allocator,
+    rng: Random,
 
-const StoreIdHasher = HasherFromKeyFunc(struct {
-    pub fn key(store_id: *const StoreId) []const u8 {
+    const StoreIdHasher = HasherFromKeyFunc(StoreId, storeIdKey);
+    const BlobIdHasher = HasherFromKeyFunc(BlobId, blobIdKey);
+
+    fn storeIdKey(store_id: *const StoreId) []const u8 {
         return store_id.id;
     }
-});
 
-const BlobIdHasher = HasherFromKeyFunc(struct {
-    pub fn key(blob_id: *const BlobId) []const u8 {
+    fn blobIdKey(blob_id: *const BlobId) []const u8 {
         return blob_id;
     }
-});
+};
 
-fn HasherFromKeyFunc(KeyFunc: type) type {
+fn HasherFromKeyFunc(Key: type, keyFunc: fn(*const Key) []const u8) type {
     return struct {
         pub fn hash(_: @This(), key: anytype) u64 {
-            return std.hash.Wyhash.hash(0, KeyFunc.key(&key));
+            return std.hash.Wyhash.hash(0, keyFunc(&key));
         }
 
         pub fn eql(_: @This(), a: anytype, b: anytype) bool {
-            return std.mem.eql(u8, KeyFunc.key(&a), KeyFunc.key(&b));
+            return std.mem.eql(u8, keyFunc(&a), keyFunc(&b));
         }
     };
 }
 
+const TestFunc = *const fn (*TestRig, Allocator) anyerror!void;
+
 fn go(rig: *TestRig, iterations: u64) !void {
-    const Func = *const fn (*TestRig) anyerror!void;
     const Weight = f32;
 
     const FuncWeightPair = struct {
-        func: Func,
+        func: TestFunc,
         weight: Weight,
         const init = struct_.Init(@This());
     };
@@ -115,105 +118,104 @@ fn go(rig: *TestRig, iterations: u64) !void {
         .init(test_blob_delete, 1),
     };
     const weights = funcs.map(ops, funcs.structField(FuncWeightPair, "weight"));
-    try test_store_list(rig);
+    try test_func_arena(test_store_list, rig);
     for (0..iterations) |_| {
         const index = rig.rng.weightedIndex(Weight, &weights);
-        const op = ops[index];
-        try op.func(rig);
+        try test_func_arena(ops[index].func, rig);
     }
     while (rig.db.count() != 0) {
-        try test_store_destroy(rig);
+        try test_func_arena(test_store_destroy, rig);
     }
 }
 
-fn test_store_list(rig: *TestRig) anyerror!void {
-    const exp_store_ids = try sorted_map_keys(StoreId, rig.db);
-    defer mem.free(exp_store_ids);
-    const store_ids = try rig.client.store_list();
+fn test_func_arena(func: TestFunc, rig: *TestRig)
+        anyerror!void {
+    var arena = std.heap.ArenaAllocator.init(rig.arena);
+    defer arena.deinit();
+    try func(rig, arena.allocator());
+}
+
+// Let test_func_arena free the allocations for the functions below.
+
+fn test_store_list(rig: *TestRig, arena: Allocator) anyerror!void {
+    const exp_store_ids = try sorted_map_keys(arena, StoreId, rig.db);
+    const store_ids = try rig.client.store_list(arena);
     sort_matrix(StoreId, store_ids);
     try testing.expectEqualDeep(exp_store_ids, store_ids);
 }
 
-fn test_store_create(rig: *TestRig) anyerror!void {
-    const store_id, const in_db = try random_store(rig);
+fn test_store_create(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, const in_db = try random_store(rig, arena);
     const exp_result = if (in_db) ty.Err.Exists
                        else {};
     const result = rig.client.store_create(store_id);
     try testing.expectEqual(exp_result, result);
-    if (!in_db) {
-        var store = TestRig.Store.init(mem.allocator);
-        errdefer store.deinit();
-        try rig.db.putNoClobber(store_id, store);
-    }
+    if (!in_db) try db_add(rig.arena, rig.db, store_id);
 }
 
-fn test_store_destroy(rig: *TestRig) anyerror!void {
-    const store_id, const in_db = try random_store(rig);
+fn test_store_destroy(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, const in_db = try random_store(rig, arena);
     const exp_result = if (in_db) {}
                        else ty.Err.NotFound;
     const result = rig.client.store_destroy(store_id);
     try testing.expectEqual(exp_result, result);
-    if (in_db) db_remove(rig.db, store_id);
+    if (in_db) db_remove(rig.arena, rig.db, store_id);
 }
 
-fn test_blob_hash(rig: *TestRig) anyerror!void {
-    const blob = try fake.blob(rig.rng, TestRig.MIN_BLOB_SIZE,
-                                        TestRig.MAX_BLOB_SIZE);
-    defer mem.free(blob);
+fn test_blob_hash(rig: *TestRig, arena: Allocator) anyerror!void {
+    const blob = try fake.blob(rig.rng, arena,
+                               TestRig.MIN_BLOB_SIZE, TestRig.MAX_BLOB_SIZE);
     const exp_blob_id = funcs.hashMemory(blob);
     const blob_id = rig.client.blob_hash(.{.memory = blob});
     try testing.expectEqual(exp_blob_id, blob_id);
 }
 
-fn test_blob_list(rig: *TestRig) anyerror!void {
-    const store_id, const in_db = try random_store(rig);
+fn test_blob_list(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, const in_db = try random_store(rig, arena);
     const exp_result =
-        if (in_db) try sorted_map_keys(BlobId, rig.db.getPtr(store_id).?)
+        if (in_db) try sorted_map_keys(arena, BlobId, rig.db.getPtr(store_id).?)
         else ty.Err.NotFound;
-    defer if (exp_result) |blob_ids| mem.free(blob_ids) else |_| {};
-    const result = rig.client.blob_list(store_id);
+    const result = rig.client.blob_list(arena, store_id);
     if (result) |blob_ids| {
         sort_matrix(BlobId, blob_ids);
     } else |_| {}
     try testing.expectEqualDeep(exp_result, result);
 }
 
-fn test_blob_info(rig: *TestRig) anyerror!void {
-    const store_id, _, const blob_id, const blob_ok = try random_store_blob(rig);
+fn test_blob_info(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, _, const blob_id, const blob_ok
+        = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?.len
                        else ty.Err.NotFound;
     const result = rig.client.blob_info(store_id, blob_id);
     try testing.expectEqual(exp_result, result);
 }
 
-fn test_blob_load(rig: *TestRig) anyerror!void {
-    const store_id, _, const blob_id, const blob_ok = try random_store_blob(rig);
+fn test_blob_load(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, _, const blob_id, const blob_ok
+        = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?
                        else ty.Err.NotFound;
-    const result_stream = rig.client.blob_load(store_id, blob_id);
-    const result = if (result_stream) |stream| try slurp(stream.stream)
+    const result_stream = rig.client.blob_load(arena, store_id, blob_id);
+    const result = if (result_stream) |stream| try slurp(arena, stream.stream)
                    else |err| err;
-    defer if (result) |blob| mem.free(blob) else |_| {};
     try testing.expectEqualDeep(exp_result, result);
 }
 
-fn test_blob_save(rig: *TestRig) anyerror!void {
+fn test_blob_save(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, const store_ok, const sel_blob_id, const blob_ok =
-        try random_store_blob(rig);
+        try random_store_blob(rig, arena);
     const exp_blob_id, const blob =
         if (blob_ok) blob: {
             const store = rig.db.getPtr(store_id).?;
             const blob = store.get(sel_blob_id).?;
             break :blob .{sel_blob_id, blob};
         } else blob: {
-            const blob = try fake.blob(rig.rng, TestRig.MIN_BLOB_SIZE,
-                                                TestRig.MAX_BLOB_SIZE);
-            errdefer mem.free(blob);
+            const blob = try fake.blob(rig.rng, arena,
+                TestRig.MIN_BLOB_SIZE, TestRig.MAX_BLOB_SIZE);
             const blob_id = funcs.hashMemory(blob);
             break :blob .{blob_id, blob};
         };
-    defer if (!store_ok) mem.free(blob);
-    errdefer if (store_ok and !blob_ok) mem.free(blob);
     const result = rig.client.blob_save(store_id, .{.memory = blob});
     const Pair = funcs.pairGen(bool, bool);
     const exp_result: @TypeOf(result) = switch (Pair.make(store_ok, blob_ok)) {
@@ -224,49 +226,64 @@ fn test_blob_save(rig: *TestRig) anyerror!void {
     try testing.expectEqual(exp_result, result);
     if (store_ok and !blob_ok) {
         const store = rig.db.getPtr(store_id).?;
-        try store.putNoClobber(exp_blob_id, blob);
+        try store_add(rig.arena, store, exp_blob_id, blob);
     }
 }
 
-fn test_blob_delete(rig: *TestRig) anyerror!void {
-    const store_id, _, const blob_id, const blob_ok = try random_store_blob(rig);
+fn test_blob_delete(rig: *TestRig, arena: Allocator) anyerror!void {
+    const store_id, _, const blob_id, const blob_ok
+        = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) {}
                        else ty.Err.NotFound;
     const result = rig.client.blob_delete(store_id, blob_id);
     try testing.expectEqual(exp_result, result);
-    if (blob_ok) store_remove(rig.db.getPtr(store_id).?, blob_id);
+    if (blob_ok) store_remove(rig.arena, rig.db.getPtr(store_id).?, blob_id);
 }
 
-fn slurp(stream: *ty.Blob.Stream) !fake.Blob {
-    const blob = try mem.alloc(u8, stream.bytes_left);
-    errdefer mem.free(blob);
+fn slurp(arena: Allocator, stream: *ty.Blob.Stream) !fake.Blob {
+    const blob = try arena.alloc(u8, stream.bytes_left);
+    errdefer arena.free(blob);
     try stream.reader.readSliceAll(blob);
     return blob;
 }
 
-fn db_remove(db: *TestRig.Db, store_id: StoreId) void {
-    const store = db.getPtr(store_id).?;
-    free_store(store);
-    const item = db.fetchRemove(store_id) orelse unreachable;
-    mem.free(item.key.id);
+fn db_add(arena: Allocator, db: *TestRig.Db, store_id: StoreId) !void {
+    const id = try arena.dupe(u8, store_id.id);
+    errdefer arena.free(id);
+    var store = TestRig.Store.init(arena);
+    errdefer store.deinit();
+    try db.putNoClobber(.init(id), store);
 }
 
-fn free_store(store: *TestRig.Store) void {
+fn db_remove(arena: Allocator, db: *TestRig.Db, store_id: StoreId) void {
+    const store = db.getPtr(store_id).?;
+    store_destroy(arena, store);
+    const item = db.fetchRemove(store_id) orelse unreachable;
+    arena.free(item.key.id);
+}
+
+fn store_destroy(arena: Allocator, store: *TestRig.Store) void {
     var val_iter = store.valueIterator();
-    while (val_iter.next()) |blob| {
-        mem.free(blob.*);
-    }
+    while (val_iter.next()) |blob| arena.free(blob.*);
     store.deinit();
 }
 
-fn store_remove(store: *TestRig.Store, blob_id: BlobId) void {
+fn store_add(arena: Allocator, store: *TestRig.Store,
+             blob_id: BlobId, blob_in: fake.Blob) !void {
+    const blob = try arena.dupe(u8, blob_in);
+    errdefer arena.free(blob);
+    try store.putNoClobber(blob_id, blob);
+}
+
+fn store_remove(arena: Allocator, store: *TestRig.Store, blob_id: BlobId) void {
     if (store.fetchRemove(blob_id)) |item| {
-        mem.free(item.value);
+        arena.free(item.value);
     }
 }
 
-fn random_store_blob(rig: *TestRig) !struct {StoreId, bool, BlobId, bool} {
-    const store_id, const store_ok = try random_store_with_p(rig, 0.8);
+fn random_store_blob(rig: *TestRig, arena: Allocator)
+        !struct {StoreId, bool, BlobId, bool} {
+    const store_id, const store_ok = try random_store_with_p(rig, arena, 0.8);
     const blob_id, const blob_ok =
         if (store_ok) blob: {
             const store = rig.db.getPtr(store_id).?;
@@ -278,21 +295,23 @@ fn random_store_blob(rig: *TestRig) !struct {StoreId, bool, BlobId, bool} {
     return .{store_id, store_ok, blob_id, blob_ok};
 }
 
-fn random_store(rig: *TestRig) !struct {StoreId, bool} {
-    return try random_store_with_p(rig, 0.6);
+fn random_store(rig: *TestRig, arena: Allocator) !struct {StoreId, bool} {
+    return try random_store_with_p(rig, arena, 0.6);
 }
 
-fn random_store_with_p(rig: *TestRig, in_db_p: f32) !struct {StoreId, bool} {
+fn random_store_with_p(rig: *TestRig, arena: Allocator, in_db_p: f32)
+        !struct {StoreId, bool} {
     const in_db = rig.db.count() != 0 and rig.rng.float(f32) < in_db_p;
     const store_id = if (in_db) try map_choose(rig.rng, rig.db, StoreId)
-                     else try fake.store_id(rig.rng, TestRig.MIN_STORE_ID_SIZE,
-                                                     TestRig.MAX_STORE_ID_SIZE);
+                     else try fake.store_id(rig.rng, arena,
+                                            TestRig.MIN_STORE_ID_SIZE,
+                                            TestRig.MAX_STORE_ID_SIZE);
     return .{store_id, in_db};
 }
 
-fn sorted_map_keys(Key: type, map: anytype) ![]Key {
+fn sorted_map_keys(arena: Allocator, Key: type, map: anytype) ![]Key {
     const size = map.count();
-    const out = try mem.alloc(Key, size);
+    const out = try arena.alloc(Key, size);
     var map_iter = map.keyIterator();
     for (out) |*elem| {
         elem.* = map_iter.next().?.*;
@@ -318,7 +337,7 @@ fn blobIdLessThan(_: void, a: BlobId, b: BlobId) bool {
     return std.mem.lessThan(u8, &a, &b);
 }
 
-fn map_choose(rng: *std.Random, map: anytype, Val: type) !Val {
+fn map_choose(rng: Random, map: anytype, Val: type) !Val {
     const index = rng.uintLessThan(usize, map.count());
     return map_index(map, index, Val);
 }

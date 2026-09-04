@@ -4,9 +4,10 @@ const IpAddress = std.Io.net.IpAddress;
 const Stream = std.Io.net.Stream;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 const ty = @import("types.zig");
-const mem = @import("mem.zig");
 const funcs = @import("funcs.zig");
 const Persister = @import("Persister.zig");
 const send_recv = @import("send_recv.zig");
@@ -27,7 +28,7 @@ pub fn create(init: std.process.Init, inner: *Persister) !Self {
     };
 }
 
-pub fn go(self: *Self) !void {
+pub fn go(self: *Self, arena: Allocator) !void {
     const opts: IpAddress.ListenOptions = .{
         .reuse_address = true,
     };
@@ -47,15 +48,18 @@ pub fn go(self: *Self) !void {
             },
         };
         defer stream.close(self.io);
-        self.clientSession(&stream);
+        self.clientSession(arena, &stream);
     }
 }
 
-pub fn clientSession(self: *Self, stream: *Stream) void {
+pub fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     const peer_addr = peer_address(stream) catch null;
     const peer_addr_str = format_address(peer_addr);
     funcs.debug("Client at {s} connected.\n", .{peer_addr_str});
-    self.handle_stream(stream) catch |raw_err| {
+
+    var sess_arena = ArenaAllocator.init(arena);
+    defer sess_arena.deinit();
+    self.handle_stream(sess_arena.allocator(), stream) catch |raw_err| {
         const err = handle_error(raw_err);
         funcs.debug("Dropping client at {s} due to {any}.\n",
                     .{peer_addr_str, err});
@@ -64,19 +68,15 @@ pub fn clientSession(self: *Self, stream: *Stream) void {
     funcs.debug("Client at {s} disconnected.\n", .{peer_addr_str});
 }
 
-pub fn handle_stream(self: *Self, stream: *Stream) !void {
+pub fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
     const BUF_SIZE = 4096;
-
-    const read_buf = try mem.alloc(u8, BUF_SIZE);
-    defer mem.free(read_buf);
+    const read_buf = try arena.alloc(u8, BUF_SIZE);
     var in = stream.reader(self.io, read_buf);
-
-    const write_buf = try mem.alloc(u8, BUF_SIZE);
-    defer mem.free(write_buf);
+    const write_buf = try arena.alloc(u8, BUF_SIZE);
     var out = stream.writer(self.io, write_buf);
 
     try shake_hands(&in.interface, &out.interface);
-    while (try self.handle_request(&in.interface, &out.interface)) {}
+    while (try self.handle_request(arena, &in.interface, &out.interface)) {}
 }
 
 pub fn shake_hands(in: *Reader, out: *Writer) !void {
@@ -90,41 +90,42 @@ pub fn shake_hands(in: *Reader, out: *Writer) !void {
     try send_recv.send_welcome(out);
 }
 
-pub fn handle_request(self: *Self, in: *Reader, out: *Writer) !bool {
-    var request = try send_recv.recv_request(in);
+pub fn handle_request(self: *Self, arena: Allocator,
+                      in: *Reader, out: *Writer) !bool {
+    var req_arena = ArenaAllocator.init(arena);
+    const request = try send_recv.recv_request(in, req_arena.allocator());
     defer request.deinit();
-    var response = self.process_request(request) orelse {
-        return false;
-    };
+    const response = self.process_request(req_arena.allocator(), request)
+        orelse return false;
     defer response.deinit();
     try send_recv.send_response(out, response);
     return true;
 }
 
-pub fn process_request(self: *Self, request: ty.Request) ?ty.Response {
+pub fn process_request(self: *Self, arena: Allocator, request: ty.Request)
+        ?ty.Response {
     return switch (request) {
-        .call => |call| out: {
-            const call_resp = self.process_call_request(call) catch |err| {
-                break :out .{.err = handle_error(err)};
-            };
-            break :out .{.call = call_resp};
-        },
+        .call => |call|
+            if (self.process_call_request(arena, call))
+                |resp| .{.call = resp}
+                else |err| .{.err = handle_error(err)},
         .bye => null,
     };
 }
 
-fn process_call_request(self: *Self, call: ty.Request.Call) !ty.Response.Call {
+fn process_call_request(self: *Self, arena: Allocator, call: ty.Request.Call)
+        !ty.Response.Call {
     return switch (call) {
         .store_list => .{.store_list =
-            try self.inner.store_list()},
+            try self.inner.store_list(arena)},
         .store_create => |store_id| .{.store_create =
             try self.inner.store_create(store_id)},
         .store_destroy => |store_id| .{.store_destroy =
             try self.inner.store_destroy(store_id)},
         .blob_hash => |blob| .{.blob_hash =
-            try funcs.hashBlob(blob)},
+            try funcs.hashBlob(arena, blob)},
         .blob_list => |store_id| .{.blob_list =
-            try self.inner.blob_list(store_id)},
+            try self.inner.blob_list(arena, store_id)},
         .blob_info => |args| .{.blob_info =
             try self.inner.blob_info(args.store_id, args.blob_id)},
         .blob_load => |args| .{.blob_load =
