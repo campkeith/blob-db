@@ -153,8 +153,8 @@ pub fn pairGen(A: type, B: type) type {
 }
 
 pub fn map(array_in: anytype, func: anytype)
-        [array_in.len]@typeInfo(@TypeOf(func)).@"fn".return_type.? {
-    const ElemOut = @typeInfo(@TypeOf(func)).@"fn".return_type.?;
+        [array_in.len]returnType(@TypeOf(func)) {
+    const ElemOut = returnType(@TypeOf(func));
     var array_out: [array_in.len]ElemOut = undefined;
     inline for (array_in, &array_out) |elem_in, *elem_out| {
         elem_out.* = func(elem_in);
@@ -169,6 +169,10 @@ pub fn structField(Obj: type, comptime name: []const u8)
             return @field(obj, name);
         }
     }.go;
+}
+
+pub fn returnType(Func: type) type {
+    return @typeInfo(Func).@"fn".return_type.?;
 }
 
 pub fn randomNameAlloc(rng: Random, arena: Allocator, size: usize) ![]u8 {

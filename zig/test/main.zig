@@ -166,7 +166,7 @@ fn test_blob_hash(rig: *TestRig, arena: Allocator) anyerror!void {
     const blob = try fake.blob(rig.rng, arena,
                                TestRig.MIN_BLOB_SIZE, TestRig.MAX_BLOB_SIZE);
     const exp_blob_id = funcs.hashMemory(blob);
-    const blob_id = rig.client.blob_hash(.{.memory = blob});
+    const blob_id = rig.client.blob_hash(.initMemory(blob));
     try testing.expectEqual(exp_blob_id, blob_id);
 }
 
@@ -216,7 +216,7 @@ fn test_blob_save(rig: *TestRig, arena: Allocator) anyerror!void {
             const blob_id = funcs.hashMemory(blob);
             break :blob .{blob_id, blob};
         };
-    const result = rig.client.blob_save(store_id, .{.memory = blob});
+    const result = rig.client.blob_save(store_id, .initMemory(blob));
     const Pair = funcs.pairGen(bool, bool);
     const exp_result: @TypeOf(result) = switch (Pair.make(store_ok, blob_ok)) {
         Pair.make(true, false) => .init(.created, exp_blob_id),

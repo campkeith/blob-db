@@ -49,7 +49,7 @@ pub const store_list = log.call(Self, "store_list", _store_list);
 fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
     var list: std.ArrayList(StoreId) = .empty;
     errdefer {
-        for (list.items) |item| arena.free(item.id);
+        for (list.items) |item| item.destroy(arena);
         list.deinit(arena);
     }
     var iterator = self.base_dir.iterate();
@@ -59,9 +59,9 @@ fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
                         .{entry.kind, entry.name});
             continue;
         }
-        const name = try arena.dupe(u8, entry.name);
-        errdefer arena.free(name);
-        try list.append(arena, .init(name));
+        const store_id = try StoreId.create(arena, entry.name);
+        errdefer store_id.destroy(arena);
+        try list.append(arena, store_id);
     }
     return try list.toOwnedSlice(arena);
 }
@@ -136,10 +136,7 @@ fn _blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
             else => err,
         };
     errdefer file.close(self.io);
-    return .{.file = .{
-        .file = file,
-        .io = self.io,
-    }};
+    return Blob.initFile(file, self.io);
 }
 
 pub const blob_save = log.call(Self, "blob_save", _blob_save);

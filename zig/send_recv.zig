@@ -44,7 +44,7 @@ pub fn send_open_door(out: *Writer) !void {
 }
 
 pub fn send_welcome(out: *Writer) !void {
-    try send(out, GreetCode.welcome);
+    try send_enum(out, GreetCode.welcome);
     try out.flush();
 }
 
@@ -56,7 +56,7 @@ pub fn send_not_welcome(out: *Writer) !void {
 pub fn send_request(out: *Writer, request: Request) !void {
     try switch (request) {
         .call => |call| send_call_request(out, call),
-        .bye => send(out, CODE_BYE),
+        .bye => send_int(out, CODE_BYE),
     };
     try out.flush();
 }
@@ -135,10 +135,9 @@ fn send(out: *Writer, obj: anytype) SendError!void {
         ty.BlobId => send_array(out, @as([]const u8, &obj)),
         ty.BlobIds => send_blob_ids(out, obj),
         ty.Blob => send_blob(out, obj),
-        []const u8 => send_array(out, obj),
         GreetCode, CallTag, Status => send_enum(out, obj),
         Response.SaveStatus => send_enum(out, save_status_to_status(obj)),
-        u16, u64 => out.writeInt(@TypeOf(obj), obj, .little),
+        u16, u64 => send_int(out, obj),
         else => {
             funcs.debug("send: {any} is not supported.\n", .{@TypeOf(obj)});
             return ty.Err.Internal;
@@ -151,51 +150,51 @@ const SendError = ty.Err || Reader.Error || Writer.Error
 
 fn send_store_ids(out: *Writer, store_ids: ty.StoreIds) !void {
     const size: ArraySize = store_ids.len;
-    try send(out, size);
+    try send_int(out, size);
     for (store_ids) |store_id| {
-        try send(out, store_id);
+        try send_store_id(out, store_id);
     }
 }
 
 fn send_store_id(out: *Writer, store_id: ty.StoreId) !void {
     const size: StoreIdSize = @intCast(store_id.id.len);
-    try send_tuple(out, .{size, store_id.id});
+    try send_int(out, size);
+    try send_array(out, store_id.id);
 }
 
 fn send_blob_ids(out: *Writer, blob_ids: ty.BlobIds) !void {
     const size: ArraySize = blob_ids.len;
-    try send(out, size);
+    try send_int(out, size);
     try send_array(out, std.mem.sliceAsBytes(blob_ids));
 }
 
 fn send_blob(out: *Writer, blob: ty.Blob) !void {
+    const size: ArraySize = try blob.size();
+    try send_int(out, size);
     switch (blob) {
         .stream => |in| {
-            const size: ArraySize = in.bytes_left;
-            try send(out, size);
             try in.reader.streamExact(out, size);
         },
         .file => |file| {
-            const size: ArraySize = try file.file.length(file.io);
-            const mmap_opts: File.MemoryMap.CreateOptions = .{
-                .len = size,
-                .protection = .{.read = true, .write = false},
-            };
-            var mem_map = try file.file.createMemoryMap(file.io, mmap_opts);
-            defer mem_map.destroy(file.io);
-            try send(out, size);
-            try send_array(out, mem_map.memory);
+            var reader = file.file.reader(file.io, &.{});
+            const sent_size = try out.sendFileAll(&reader, .limited(size));
+            if (sent_size != size) {
+                funcs.debug("send_blob: Warning: only {d}/{d} bytes sent.",
+                            .{sent_size, size});
+            }
         },
         .memory => |bytes| {
-            try send(out, @as(ArraySize, bytes.len));
             try send_array(out, bytes);
         },
     }
 }
 
 fn send_enum(out: *Writer, enum_val: anytype) !void {
-    const tag = @intFromEnum(enum_val);
-    try out.writeInt(@TypeOf(tag), tag, .little);
+    try send_int(out, @intFromEnum(enum_val));
+}
+
+fn send_int(out: *Writer, val: anytype) !void {
+    try out.writeInt(@TypeOf(val), val, .little);
 }
 
 fn send_tuple(out: *Writer, tuple: anytype) !void {
@@ -374,14 +373,8 @@ fn recv_blob_id(in: *Reader) !ty.BlobId {
 }
 
 fn recv_blob(in: Receiver) !ty.Blob {
-    const array_size = try recv_int(in.reader, ArraySize);
-    const stream = try in.arena.?.create(ty.Blob.Stream);
-    errdefer in.arena.?.free(stream);
-    stream.* = .{
-        .reader = in.reader,
-        .bytes_left = array_size,
-    };
-    return .{.stream = stream};
+    const size = try recv_int(in.reader, ArraySize);
+    return try ty.Blob.initStream(in.arena.?, in.reader, size);
 }
 
 fn recv_enum(in: *Reader, Enum: type) !Enum {

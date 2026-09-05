@@ -121,14 +121,14 @@ fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
 fn remote_call(self: *Self, arena: ?Allocator, comptime call_tag: ty.CallTag,
         args: @FieldType(Request.Call, @tagName(call_tag)))
             !@FieldType(Response.Call, @tagName(call_tag)) {
-    const request = Request{
+    const request = Request {
         .call = @unionInit(Request.Call, @tagName(call_tag), args),
     };
     try send_recv.send_request(&self.out.interface, request);
     const receiver = send_recv.Receiver.init(&self.in.interface, arena);
     const response = try send_recv.recv_response(receiver, call_tag);
     return switch (response) {
-        .call => |result| @field(result, @tagName(call_tag)),
+        .call => |result| result.toOwnedVal(call_tag),
         .err => |err| err,
     };
 }

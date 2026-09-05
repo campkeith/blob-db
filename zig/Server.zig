@@ -1,11 +1,13 @@
 const std = @import("std");
+const Io = std.Io;
 const sockaddr = std.posix.sockaddr;
 const IpAddress = std.Io.net.IpAddress;
+const Server = std.Io.net.Server;
 const Stream = std.Io.net.Stream;
+const Future = std.Io.Future;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
-const ArenaAllocator = std.heap.ArenaAllocator;
 
 const ty = @import("types.zig");
 const funcs = @import("funcs.zig");
@@ -14,9 +16,16 @@ const send_recv = @import("send_recv.zig");
 
 const Self = @This();
 
-io: std.Io,
+const Selector = Io.Select(AcceptSleepResult);
+const AcceptSleepResult = union(enum) {
+    accept: funcs.returnType(@TypeOf(Server.accept)),
+    sleep: funcs.returnType(@TypeOf(Io.sleep)),
+};
+
+io: Io,
 inner: *Persister,
 address: IpAddress,
+running: bool,
 
 pub fn create(init: std.process.Init, inner: *Persister) !Self {
     const address_str = try funcs.getEnv(init.environ_map, "BIND_ADDRESS");
@@ -25,6 +34,7 @@ pub fn create(init: std.process.Init, inner: *Persister) !Self {
         .io = init.io,
         .inner = inner,
         .address = address,
+        .running = false,
     };
 }
 
@@ -35,31 +45,61 @@ pub fn go(self: *Self, arena: Allocator) !void {
     var server = try self.address.listen(self.io, opts);
     defer server.deinit(self.io);
     const addr_str = format_address(server.socket.address);
+    self.running = true;
     funcs.debug("Server at {s} is up.\n", .{addr_str});
 
-    while (true) {
-        var stream = server.accept(self.io) catch |err| switch (err) {
-            error.SocketNotListening, error.WouldBlock => {
-                funcs.debug("Fatal server error: {any}\n", .{err});
-                return err;
-            }, else => {
-                funcs.debug("Error connecting to client: {any}\n", .{err});
-                continue;
+    var select_buf: [2]AcceptSleepResult = undefined;
+    var select: Selector = .init(self.io, &select_buf);
+    defer select.cancelDiscard();
+    self.start_accept(&select, &server);
+    self.start_sleep(&select);
+    while (self.running) {
+        const result = try select.await();
+        switch (result) {
+            .accept => |accept_result| {
+                {
+                    var stream = accept_result catch |err| switch (err) {
+                        error.SocketNotListening, error.WouldBlock => {
+                            funcs.debug("Fatal server error: {any}\n", .{err});
+                            return err;
+                        },
+                        else => {
+                            funcs.debug("Error connecting to client: {any}\n",
+                                        .{err});
+                            continue;
+                        },
+                    };
+                    defer stream.close(self.io);
+                    self.clientSession(arena, &stream);
+                }
+                self.start_accept(&select, &server);
             },
-        };
-        defer stream.close(self.io);
-        self.clientSession(arena, &stream);
+            .sleep => |sleep_result| {
+                try sleep_result;
+                self.start_sleep(&select);
+            },
+        }
     }
 }
 
-pub fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
+pub fn stop(self: *Self) void {
+    self.running = false;
+}
+
+fn start_accept(self: *Self, select: *Selector, server: *Server) void {
+    select.async(.accept, Server.accept, .{server, self.io});
+}
+
+fn start_sleep(self: *Self, select: *Selector) void {
+    select.async(.sleep, Io.sleep, .{self.io, .fromSeconds(1), .awake});
+}
+
+fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     const peer_addr = peer_address(stream) catch null;
     const peer_addr_str = format_address(peer_addr);
     funcs.debug("Client at {s} connected.\n", .{peer_addr_str});
 
-    var sess_arena = ArenaAllocator.init(arena);
-    defer sess_arena.deinit();
-    self.handle_stream(sess_arena.allocator(), stream) catch |raw_err| {
+    self.handle_stream(arena, stream) catch |raw_err| {
         const err = handle_error(raw_err);
         funcs.debug("Dropping client at {s} due to {any}.\n",
                     .{peer_addr_str, err});
@@ -68,18 +108,20 @@ pub fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     funcs.debug("Client at {s} disconnected.\n", .{peer_addr_str});
 }
 
-pub fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
+fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
     const BUF_SIZE = 4096;
     const read_buf = try arena.alloc(u8, BUF_SIZE);
+    defer arena.free(read_buf);
     var in = stream.reader(self.io, read_buf);
     const write_buf = try arena.alloc(u8, BUF_SIZE);
+    defer arena.free(write_buf);
     var out = stream.writer(self.io, write_buf);
 
     try shake_hands(&in.interface, &out.interface);
     while (try self.handle_request(arena, &in.interface, &out.interface)) {}
 }
 
-pub fn shake_hands(in: *Reader, out: *Writer) !void {
+fn shake_hands(in: *Reader, out: *Writer) !void {
     send_recv.recv_open_door(in) catch |err| return switch (err) {
         ty.Err.BadArgument => out: {
             try send_recv.send_not_welcome(out);
@@ -90,19 +132,18 @@ pub fn shake_hands(in: *Reader, out: *Writer) !void {
     try send_recv.send_welcome(out);
 }
 
-pub fn handle_request(self: *Self, arena: Allocator,
+fn handle_request(self: *Self, arena: Allocator,
                       in: *Reader, out: *Writer) !bool {
-    var req_arena = ArenaAllocator.init(arena);
-    const request = try send_recv.recv_request(in, req_arena.allocator());
-    defer request.deinit();
-    const response = self.process_request(req_arena.allocator(), request)
+    const request = try send_recv.recv_request(in, arena);
+    defer request.deinit(arena);
+    const response = self.process_request(arena, request)
         orelse return false;
-    defer response.deinit();
+    defer response.deinit(arena);
     try send_recv.send_response(out, response);
     return true;
 }
 
-pub fn process_request(self: *Self, arena: Allocator, request: ty.Request)
+fn process_request(self: *Self, arena: Allocator, request: ty.Request)
         ?ty.Response {
     return switch (request) {
         .call => |call|
@@ -157,7 +198,7 @@ fn handle_error(err: anytype) ty.Err {
 
 fn format_address(opt_address: ?IpAddress) [64]u8 {
     var buf: [64]u8 = .{0} ** 64;
-    var out = std.Io.Writer.fixed(&buf);
+    var out = Writer.fixed(&buf);
     if (opt_address) |address| {
         address.format(&out) catch {
             write_placeholder(&out);
@@ -177,35 +218,5 @@ fn peer_address(stream: *Stream) !IpAddress {
     var size: std.posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
     const address: *sockaddr = @ptrCast(&addr_buf);
     try std.posix.getpeername(stream.socket.handle, address, &size);
-    return try sock_to_ip_addr(address);
-}
-
-fn sock_to_ip_addr(address: *const sockaddr) !IpAddress {
-    switch (address.family) {
-        std.posix.AF.INET => {
-            const addr_v4: *const sockaddr.in = @alignCast(@ptrCast(address));
-            var bytes: [4]u8 = undefined;
-            std.mem.writeInt(u32, &bytes, addr_v4.addr, .big);
-            return .{.ip4 = .{
-                .bytes = bytes,
-                .port = std.mem.bigToNative(u16, addr_v4.port),
-            }};
-        },
-        std.posix.AF.INET6 => {
-            const addr_v6: *const sockaddr.in6 = @alignCast(@ptrCast(address));
-            return .{.ip6 = .{
-                .bytes = addr_v6.addr,
-                .port = std.mem.bigToNative(u16, addr_v6.port),
-                .flow = addr_v6.flowinfo,
-                .interface = .{
-                    .index = addr_v6.scope_id,
-                },
-            }};
-        },
-        else => {
-            funcs.debug("sockaddr_to_ip_address: unsupported family: {d}\n",
-                        .{address.family});
-            return ty.Err.Internal;
-        },
-    }
+    return Io.Threaded.addressFromPosix(&.{.any = address.*});
 }

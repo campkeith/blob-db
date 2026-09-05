@@ -1,5 +1,9 @@
 const std = @import("std");
+const Io = std.Io;
+const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+const activeTag = std.meta.activeTag;
 
 const struct_ = @import("struct_.zig");
 const funcs = @import("funcs.zig");
@@ -33,10 +37,15 @@ pub const Request = union(enum) {
         blob_save: StoreIdBlob,
         blob_delete: StoreIdBlobId,
 
-        pub fn deinit(self: Call) void {
+        pub fn deinit(self: Call, arena: Allocator) void {
             switch (self) {
-                .blob_save => |store_id_blob| store_id_blob.deinit(),
-                else => {},
+                .store_list => {},
+                .store_create, .store_destroy, .blob_list =>
+                    |store_id| store_id.destroy(arena),
+                .blob_hash => |blob| blob.deinit(arena),
+                .blob_info, .blob_load, .blob_delete =>
+                    |store_id_blob_id| store_id_blob_id.deinit(arena),
+                .blob_save => |store_id_blob| store_id_blob.deinit(arena),
             }
         }
     };
@@ -46,6 +55,10 @@ pub const Request = union(enum) {
         blob_id: BlobId,
 
         pub const init = struct_.Init(@This());
+
+        pub fn deinit(self: StoreIdBlobId, arena: Allocator) void {
+            self.store_id.destroy(arena);
+        }
     };
 
     pub const StoreIdBlob = struct {
@@ -54,15 +67,16 @@ pub const Request = union(enum) {
 
         pub const init = struct_.Init(@This());
 
-        pub fn deinit(self: StoreIdBlob) void {
-            self.blob.deinit();
+        pub fn deinit(self: StoreIdBlob, arena: Allocator) void {
+            self.store_id.destroy(arena);
+            self.blob.deinit(arena);
         }
     };
 
-    pub fn deinit(self: Request) void {
+    pub fn deinit(self: Request, arena: Allocator) void {
         switch (self) {
-            .call => |call| call.deinit(),
-            else => {},
+            .call => |call| call.deinit(arena),
+            .bye => {},
         }
     }
 };
@@ -83,11 +97,22 @@ pub const Response = union(enum) {
         blob_save: SaveStatusBlobId,
         blob_delete,
 
-        pub fn deinit(self: Call) void {
+        pub fn deinit(self: Call, arena: Allocator) void {
             switch (self) {
-                .blob_load => |blob| blob.deinit(),
-                else => {},
+                .store_list => |list| {
+                    for (list) |*item| item.destroy(arena);
+                    arena.free(list);
+                },
+                .store_create, .store_destroy, .blob_hash,
+                    .blob_info, .blob_save, .blob_delete => {},
+                .blob_list => |list| arena.free(list),
+                .blob_load => |blob| blob.deinit(arena),
             }
+        }
+
+        pub fn toOwnedVal(self: Call, comptime tag: CallTag)
+                @FieldType(Call, @tagName(tag)) {
+            return @field(self, @tagName(tag));
         }
     };
 
@@ -108,10 +133,10 @@ pub const Response = union(enum) {
         exists,
     };
 
-    pub fn deinit(self: Response) void {
+    pub fn deinit(self: Response, arena: Allocator) void {
         switch (self) {
-            .call => |call| call.deinit(),
-            else => {},
+            .call => |call| call.deinit(arena),
+            .err => {},
         }
     }
 };
@@ -129,6 +154,15 @@ pub const StoreId = struct {
 
     pub const init = struct_.Init(@This());
 
+    pub fn create(arena: Allocator, id_in: []const u8) !StoreId {
+        const id = try arena.dupe(u8, id_in);
+        return .init(id);
+    }
+
+    pub fn destroy(self: StoreId, arena: Allocator) void {
+        arena.free(self.id);
+    }
+
     pub fn format(self: StoreId, writer: *Writer) !void {
         try writer.print("\"{s}\"", .{self.id});
     }
@@ -142,12 +176,12 @@ pub const BlobIds = []BlobId;
 pub const Blob = union(enum) {
     stream: *Stream,
     file: File,
-    memory: []u8,
+    memory: []const u8,
 
     pub const Size = u64;
 
     pub const Stream = struct {
-        reader: *std.Io.Reader,
+        reader: *Reader,
         bytes_left: usize,
 
         pub fn discard(self: *Stream) void {
@@ -160,8 +194,8 @@ pub const Blob = union(enum) {
     };
 
     pub const File = struct {
-        file: std.Io.File,
-        io: std.Io,
+        file: Io.File,
+        io: Io,
 
         pub fn close(self: File) void {
             self.file.close(self.io);
@@ -172,16 +206,34 @@ pub const Blob = union(enum) {
         }
     };
 
-    pub fn deinit(self: Blob) void {
+    pub fn initStream(arena: Allocator, reader: *Reader, size_: usize) !Blob {
+        const stream = try arena.create(Stream);
+        errdefer arena.destroy(stream);
+        stream.* = .{.reader = reader, .bytes_left = size_};
+        return .{.stream = stream};
+    }
+
+    pub fn initFile(file: Io.File, io: Io) Blob {
+        return .{.file = .{.file = file, .io = io}};
+    }
+
+    pub fn initMemory(memory: []const u8) Blob {
+        return .{.memory = memory};
+    }
+
+    pub fn deinit(self: Blob, arena: Allocator) void {
         switch (self) {
-            .stream => |stream| stream.discard(),
+            .stream => |stream| {
+                stream.discard();
+                arena.destroy(stream);
+            },
             .file => |file| file.close(),
             .memory => {},
         }
     }
 
     pub fn format(self: Blob, out: *Writer) !void {
-        const tag = std.meta.activeTag(self);
+        const tag = activeTag(self);
         const size_: ?Size = self.size() catch null;
         try out.print("Blob(type = {t}, size = {?d})", .{tag, size_});
     }
