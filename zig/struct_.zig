@@ -3,7 +3,7 @@ const Type = std.builtin.Type;
 
 const funcs = @import("funcs.zig");
 
-pub fn Init(Obj: type) Return: {
+pub fn init(Obj: type) Return: {
     const types = fieldTypes(Obj);
     break :Return switch (types.len) {
         0 => fn() Obj,

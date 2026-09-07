@@ -47,8 +47,8 @@ fn argType(param: Type.Fn.Param) type {
 
 fn argsCallRet(comptime func: anytype, args: anytype, name: []const u8)
         funcs.returnType(@TypeOf(func)) {
-    funcs.debug("{s}{f}:\n", .{name, debug.Fmt(args)});
+    funcs.println("{s}{f}:", .{name, debug.Fmt(args)});
     const result = @call(.auto, func, args);
-    funcs.debug("{s} -> {f}\n", .{name, debug.Fmt(result)});
+    funcs.println("{s} -> {f}", .{name, debug.Fmt(result)});
     return result;
 }

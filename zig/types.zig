@@ -5,8 +5,10 @@ const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 const activeTag = std.meta.activeTag;
 
+const debug = @import("debug.zig");
+const Fmt = debug.Fmt;
+
 const struct_ = @import("struct_.zig");
-const funcs = @import("funcs.zig");
 
 pub const CallTag = enum(Code) {
     store_list = encode8("storlist"),
@@ -36,49 +38,21 @@ pub const Request = union(enum) {
         blob_load: StoreIdBlobId,
         blob_save: StoreIdBlob,
         blob_delete: StoreIdBlobId,
-
-        pub fn deinit(self: Call, arena: Allocator) void {
-            switch (self) {
-                .store_list => {},
-                .store_create, .store_destroy, .blob_list =>
-                    |store_id| store_id.destroy(arena),
-                .blob_hash => |blob| blob.deinit(arena),
-                .blob_info, .blob_load, .blob_delete =>
-                    |store_id_blob_id| store_id_blob_id.deinit(arena),
-                .blob_save => |store_id_blob| store_id_blob.deinit(arena),
-            }
-        }
     };
 
     pub const StoreIdBlobId = struct {
         store_id: StoreId,
         blob_id: BlobId,
 
-        pub const init = struct_.Init(@This());
-
-        pub fn deinit(self: StoreIdBlobId, arena: Allocator) void {
-            self.store_id.destroy(arena);
-        }
+        pub const init = struct_.init(@This());
     };
 
     pub const StoreIdBlob = struct {
         store_id: StoreId,
         blob: Blob,
 
-        pub const init = struct_.Init(@This());
-
-        pub fn deinit(self: StoreIdBlob, arena: Allocator) void {
-            self.store_id.destroy(arena);
-            self.blob.deinit(arena);
-        }
+        pub const init = struct_.init(@This());
     };
-
-    pub fn deinit(self: Request, arena: Allocator) void {
-        switch (self) {
-            .call => |call| call.deinit(arena),
-            .bye => {},
-        }
-    }
 };
 
 pub const Response = union(enum) {
@@ -97,19 +71,6 @@ pub const Response = union(enum) {
         blob_save: SaveStatusBlobId,
         blob_delete,
 
-        pub fn deinit(self: Call, arena: Allocator) void {
-            switch (self) {
-                .store_list => |list| {
-                    for (list) |*item| item.destroy(arena);
-                    arena.free(list);
-                },
-                .store_create, .store_destroy, .blob_hash,
-                    .blob_info, .blob_save, .blob_delete => {},
-                .blob_list => |list| arena.free(list),
-                .blob_load => |blob| blob.deinit(arena),
-            }
-        }
-
         pub fn toOwnedVal(self: Call, comptime tag: CallTag)
                 @FieldType(Call, @tagName(tag)) {
             return @field(self, @tagName(tag));
@@ -120,11 +81,10 @@ pub const Response = union(enum) {
         status: SaveStatus,
         blob_id: BlobId,
 
-        pub const init = struct_.Init(@This());
+        pub const init = struct_.init(@This());
 
         pub fn format(self: SaveStatusBlobId, writer: *Writer) !void {
-            try writer.print("{{{t}, {s}}}",
-                .{self.status, funcs.hashBytesToHex(self.blob_id)});
+            try writer.print("{{{t}, {f}}}", .{self.status, Fmt(self.blob_id)});
         }
     };
 
@@ -132,13 +92,6 @@ pub const Response = union(enum) {
         created,
         exists,
     };
-
-    pub fn deinit(self: Response, arena: Allocator) void {
-        switch (self) {
-            .call => |call| call.deinit(arena),
-            .err => {},
-        }
-    }
 };
 
 pub const Err = error {
@@ -152,15 +105,11 @@ pub const Err = error {
 pub const StoreId = struct {
     id: []const u8,
 
-    pub const init = struct_.Init(@This());
+    pub const init = struct_.init(@This());
 
     pub fn create(arena: Allocator, id_in: []const u8) !StoreId {
         const id = try arena.dupe(u8, id_in);
         return .init(id);
-    }
-
-    pub fn destroy(self: StoreId, arena: Allocator) void {
-        arena.free(self.id);
     }
 
     pub fn format(self: StoreId, writer: *Writer) !void {

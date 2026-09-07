@@ -53,14 +53,14 @@ fn _connect(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
 }
 
 fn shake_hands(self: *Self) !void {
-    try send_recv.send_open_door(&self.out.interface);
-    try send_recv.recv_welcome(&self.in.interface);
+    try send_recv.sendOpenDoor(&self.out.interface);
+    try send_recv.recvWelcome(&self.in.interface);
 }
 
 pub const close = log.call(Self, "close", _close);
 fn _close(self: *Self, arena: Allocator) void {
-    send_recv.send_request(&self.out.interface, .bye) catch |err| {
-        funcs.debug("Client.close: failed to send 'bye' due to {}.\n", .{err});
+    send_recv.sendRequest(&self.out.interface, .bye) catch |err| {
+        funcs.println("Client.close: failed to send 'bye' due to {t}.", .{err});
     };
     arena.free(self.read_buf);
     arena.free(self.write_buf);
@@ -124,9 +124,8 @@ fn remote_call(self: *Self, arena: ?Allocator, comptime call_tag: ty.CallTag,
     const request = Request {
         .call = @unionInit(Request.Call, @tagName(call_tag), args),
     };
-    try send_recv.send_request(&self.out.interface, request);
-    const receiver = send_recv.Receiver.init(&self.in.interface, arena);
-    const response = try send_recv.recv_response(receiver, call_tag);
+    try send_recv.sendRequest(&self.out.interface, request);
+    const response = try send_recv.recvResponse(&self.in.interface, arena, call_tag);
     return switch (response) {
         .call => |result| result.toOwnedVal(call_tag),
         .err => |err| err,

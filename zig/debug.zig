@@ -1,9 +1,9 @@
 const std = @import("std");
 const Writer = std.Io.Writer;
 const print = std.debug.print;
+const IpAddress = std.Io.net.IpAddress;
 
 const ty = @import("types.zig");
-
 const funcs = @import("funcs.zig");
 
 pub fn Fmt(obj: anytype) Formatter(@TypeOf(obj)) {
@@ -28,6 +28,8 @@ pub fn format_obj(obj: anytype, out: *Writer) !void {
     } else try switch (Obj) {
         []const u8 => out.print("\"{s}\"", .{obj}),
         ty.BlobId => out.print("{s}", .{funcs.hashBytesToHex(obj)}),
+        ?IpAddress => format_address(obj, out),
+        std.mem.Allocator => format_struct(obj, out),
         else => switch (@typeInfo(Obj)) {
             .error_union =>
                 if (obj) |not_err| format_obj(not_err, out)
@@ -71,10 +73,19 @@ pub fn format_struct(obj: anytype, out: *Writer) !void {
         try out.print("{s} = {f}", .{field.name, Fmt(@field(obj, field.name))});
         if (index < fields.len - 1) try out.writeAll(", ");
     }
-    out.writeAll("}");
+    try out.writeAll("}");
 }
 
 pub fn format_struct_opaque(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
     try out.print("{s}{{..}}", .{@typeName(Obj)});
+}
+
+fn format_address(opt_address: ?std.Io.net.IpAddress, out: *Writer) !void {
+    if (opt_address) |address| address.format(out) catch writePlaceholder(out)
+        else writePlaceholder(out);
+}
+
+fn writePlaceholder(out: *Writer) void {
+    out.writeAll("?") catch {};
 }

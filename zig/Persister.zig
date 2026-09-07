@@ -12,6 +12,7 @@ const BlobSize = ty.BlobSize;
 const log = @import("log.zig");
 const debug = @import("debug.zig");
 const funcs = @import("funcs.zig");
+const trash = @import("trash.zig");
 
 const Self = @This();
 const TempName = [16]u8;
@@ -48,19 +49,16 @@ pub fn format(self: Self, out: *std.Io.Writer) !void {
 pub const store_list = log.call(Self, "store_list", _store_list);
 fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
     var list: std.ArrayList(StoreId) = .empty;
-    errdefer {
-        for (list.items) |item| item.destroy(arena);
-        list.deinit(arena);
-    }
+    errdefer trash.recycleArrayList(&list, arena);
     var iterator = self.base_dir.iterate();
     while (try iterator.next(self.io)) |entry| {
         if (entry.kind != .directory) {
-            funcs.debug("store_list: Ignoring {any} entry '{s}'\n",
-                        .{entry.kind, entry.name});
+            funcs.println("store_list: Ignoring {t} entry \"{s}\"",
+                          .{entry.kind, entry.name});
             continue;
         }
         const store_id = try StoreId.create(arena, entry.name);
-        errdefer store_id.destroy(arena);
+        errdefer trash.recycle(store_id, arena);
         try list.append(arena, store_id);
     }
     return try list.toOwnedSlice(arena);
@@ -96,11 +94,11 @@ fn _blob_list(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
     var iterator = store_dir.iterate();
     while (try iterator.next(self.io)) |entry| {
         if (entry.kind != .file) {
-            funcs.debug("blob_list: Ignoring {any} entry '{s}'\n",
-                        .{entry.kind, entry.name});
+            funcs.println("blob_list: Ignoring {t} entry \"{s}\"",
+                          .{entry.kind, entry.name});
             continue;
         }
-        const blob_id = try funcs.hashHexToBytes(entry.name);
+        const blob_id = try nameToBlobId(entry.name);
         try list.append(arena, blob_id);
     }
     return try list.toOwnedSlice(arena);
@@ -152,7 +150,7 @@ fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
     };
     var file = try store_dir.createFile(self.io, &temp_filename, opts);
     errdefer store_dir.deleteFile(self.io, &temp_filename) catch |err|
-        funcs.debug("blob_save: temp file remove failed due to {}\n.", .{err});
+        funcs.println("blob_save: temp file remove failed due to {t}.", .{err});
     defer file.close(self.io);
 
     const size = try blob.size();
@@ -202,6 +200,14 @@ fn open_store_dir(self: *Self, store_id: StoreId) !Dir {
             error.FileNotFound => ty.Err.NotFound,
             else => err,
         };
+}
+
+fn nameToBlobId(name: []const u8) !BlobId {
+    if (name.len != 64) {
+        funcs.println("nameToBlobId: invalid length name: \"{s}\"\n", .{name});
+        return ty.Err.Internal;
+    }
+    return funcs.hashHexToBytes(std.mem.bytesToValue(ty.BlobIdStr, name));
 }
 
 fn temp_name(self: *Self) TempName {

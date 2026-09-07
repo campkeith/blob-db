@@ -9,6 +9,7 @@ const StoreId = ty.StoreId;
 const BlobId = ty.BlobId;
 
 const funcs = @import("blob-db/funcs.zig");
+const trash = @import("blob-db/trash.zig");
 const debug = @import("blob-db/debug.zig");
 const struct_ = @import("blob-db/struct_.zig");
 const Client = @import("blob-db/Client.zig");
@@ -21,11 +22,11 @@ const Args = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    const args = parse_args(init.minimal.args);
+    const args = parseArgs(init.minimal.args);
     var client = try Client.connect(init.io, init.gpa, args.address);
     defer client.close(init.gpa);
     var db = TestRig.Db.init(init.gpa);
-    defer db.deinit();
+    defer trash.recycle(&db, init.gpa);
     var rng = Random.DefaultPrng.init(0);
     var rig = TestRig{
         .client = &client,
@@ -36,16 +37,16 @@ pub fn main(init: std.process.Init) !void {
     try go(&rig, args.iterations);
 }
 
-fn parse_args(args: std.process.Args) Args {
+fn parseArgs(args: std.process.Args) Args {
     const args_vec = args.vector;
     const program = args_vec[0];
     return parse_core_args(args_vec[1..]) catch {
-        funcs.debug("Usage: {s} <address>:<port> <iterations>\n", .{program});
+        funcs.println("Usage: {s} <address>:<port> <iterations>", .{program});
         std.process.exit(1);
     };
 }
 
-fn parse_core_args(args: std.process.Args.Vector) !Args {
+fn parseCoreArgs(args: std.process.Args.Vector) !Args {
     if (args.len != 2) {
         return ty.Err.BadArgument;
     }
@@ -104,7 +105,7 @@ fn go(rig: *TestRig, iterations: u64) !void {
     const FuncWeightPair = struct {
         func: TestFunc,
         weight: Weight,
-        const init = struct_.Init(@This());
+        const init = struct_.init(@This());
     };
     const ops = [_]FuncWeightPair{
         .init(test_store_list, 0.2),
@@ -128,8 +129,7 @@ fn go(rig: *TestRig, iterations: u64) !void {
     }
 }
 
-fn test_func_arena(func: TestFunc, rig: *TestRig)
-        anyerror!void {
+fn testFuncArena(func: TestFunc, rig: *TestRig) anyerror!void {
     var arena = std.heap.ArenaAllocator.init(rig.arena);
     defer arena.deinit();
     try func(rig, arena.allocator());
@@ -137,14 +137,14 @@ fn test_func_arena(func: TestFunc, rig: *TestRig)
 
 // Let test_func_arena free the allocations for the functions below.
 
-fn test_store_list(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testStoreList(rig: *TestRig, arena: Allocator) anyerror!void {
     const exp_store_ids = try sorted_map_keys(arena, StoreId, rig.db);
     const store_ids = try rig.client.store_list(arena);
     sort_matrix(StoreId, store_ids);
     try testing.expectEqualDeep(exp_store_ids, store_ids);
 }
 
-fn test_store_create(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testStoreCreate(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, const in_db = try random_store(rig, arena);
     const exp_result = if (in_db) ty.Err.Exists
                        else {};
@@ -153,16 +153,16 @@ fn test_store_create(rig: *TestRig, arena: Allocator) anyerror!void {
     if (!in_db) try db_add(rig.arena, rig.db, store_id);
 }
 
-fn test_store_destroy(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testStoreDestroy(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, const in_db = try random_store(rig, arena);
     const exp_result = if (in_db) {}
                        else ty.Err.NotFound;
     const result = rig.client.store_destroy(store_id);
     try testing.expectEqual(exp_result, result);
-    if (in_db) db_remove(rig.arena, rig.db, store_id);
+    if (in_db) mapRemove(rig.arena, rig.db, store_id);
 }
 
-fn test_blob_hash(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobHash(rig: *TestRig, arena: Allocator) anyerror!void {
     const blob = try fake.blob(rig.rng, arena,
                                TestRig.MIN_BLOB_SIZE, TestRig.MAX_BLOB_SIZE);
     const exp_blob_id = funcs.hashMemory(blob);
@@ -170,7 +170,7 @@ fn test_blob_hash(rig: *TestRig, arena: Allocator) anyerror!void {
     try testing.expectEqual(exp_blob_id, blob_id);
 }
 
-fn test_blob_list(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobList(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, const in_db = try random_store(rig, arena);
     const exp_result =
         if (in_db) try sorted_map_keys(arena, BlobId, rig.db.getPtr(store_id).?)
@@ -182,7 +182,7 @@ fn test_blob_list(rig: *TestRig, arena: Allocator) anyerror!void {
     try testing.expectEqualDeep(exp_result, result);
 }
 
-fn test_blob_info(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobInfo(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, _, const blob_id, const blob_ok
         = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?.len
@@ -191,7 +191,7 @@ fn test_blob_info(rig: *TestRig, arena: Allocator) anyerror!void {
     try testing.expectEqual(exp_result, result);
 }
 
-fn test_blob_load(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobLoad(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, _, const blob_id, const blob_ok
         = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) rig.db.getPtr(store_id).?.get(blob_id).?
@@ -202,7 +202,7 @@ fn test_blob_load(rig: *TestRig, arena: Allocator) anyerror!void {
     try testing.expectEqualDeep(exp_result, result);
 }
 
-fn test_blob_save(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobSave(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, const store_ok, const sel_blob_id, const blob_ok =
         try random_store_blob(rig, arena);
     const exp_blob_id, const blob =
@@ -230,14 +230,14 @@ fn test_blob_save(rig: *TestRig, arena: Allocator) anyerror!void {
     }
 }
 
-fn test_blob_delete(rig: *TestRig, arena: Allocator) anyerror!void {
+fn testBlobDelete(rig: *TestRig, arena: Allocator) anyerror!void {
     const store_id, _, const blob_id, const blob_ok
         = try random_store_blob(rig, arena);
     const exp_result = if (blob_ok) {}
                        else ty.Err.NotFound;
     const result = rig.client.blob_delete(store_id, blob_id);
     try testing.expectEqual(exp_result, result);
-    if (blob_ok) store_remove(rig.arena, rig.db.getPtr(store_id).?, blob_id);
+    if (blob_ok) mapRemove(rig.arena, rig.db.getPtr(store_id).?, blob_id);
 }
 
 fn slurp(arena: Allocator, stream: *ty.Blob.Stream) !fake.Blob {
@@ -247,41 +247,27 @@ fn slurp(arena: Allocator, stream: *ty.Blob.Stream) !fake.Blob {
     return blob;
 }
 
-fn db_add(arena: Allocator, db: *TestRig.Db, store_id: StoreId) !void {
-    const id = try arena.dupe(u8, store_id.id);
-    errdefer arena.free(id);
+fn dbAdd(db: *TestRig.Db, store_id_in: StoreId, arena: Allocator) !void {
+    const store_id = StoreId.create(store_id_in.id);
+    errdefer trash.recycle(store_id, arena);
     var store = TestRig.Store.init(arena);
     errdefer store.deinit();
-    try db.putNoClobber(.init(id), store);
+    try db.putNoClobber(store_id, store);
 }
 
-fn db_remove(arena: Allocator, db: *TestRig.Db, store_id: StoreId) void {
-    const store = db.getPtr(store_id).?;
-    store_destroy(arena, store);
-    const item = db.fetchRemove(store_id) orelse unreachable;
-    arena.free(item.key.id);
-}
-
-fn store_destroy(arena: Allocator, store: *TestRig.Store) void {
-    var val_iter = store.valueIterator();
-    while (val_iter.next()) |blob| arena.free(blob.*);
-    store.deinit();
-}
-
-fn store_add(arena: Allocator, store: *TestRig.Store,
-             blob_id: BlobId, blob_in: fake.Blob) !void {
+fn storeAdd(store: *TestRig.Store, blob_id: BlobId, blob_in: fake.Blob,
+             arena: Allocator) !void {
     const blob = try arena.dupe(u8, blob_in);
     errdefer arena.free(blob);
     try store.putNoClobber(blob_id, blob);
 }
 
-fn store_remove(arena: Allocator, store: *TestRig.Store, blob_id: BlobId) void {
-    if (store.fetchRemove(blob_id)) |item| {
-        arena.free(item.value);
-    }
+fn mapRemove(map: anytype, key: anytype, arena: Allocator) void {
+    const item = map.fetchRemove(key) orelse unreachable;
+    trash.recycle(item);
 }
 
-fn random_store_blob(rig: *TestRig, arena: Allocator)
+fn randomStoreBlob(rig: *TestRig, arena: Allocator)
         !struct {StoreId, bool, BlobId, bool} {
     const store_id, const store_ok = try random_store_with_p(rig, arena, 0.8);
     const blob_id, const blob_ok =
@@ -295,11 +281,11 @@ fn random_store_blob(rig: *TestRig, arena: Allocator)
     return .{store_id, store_ok, blob_id, blob_ok};
 }
 
-fn random_store(rig: *TestRig, arena: Allocator) !struct {StoreId, bool} {
+fn randomStore(rig: *TestRig, arena: Allocator) !struct {StoreId, bool} {
     return try random_store_with_p(rig, arena, 0.6);
 }
 
-fn random_store_with_p(rig: *TestRig, arena: Allocator, in_db_p: f32)
+fn randomStoreWithP(rig: *TestRig, arena: Allocator, in_db_p: f32)
         !struct {StoreId, bool} {
     const in_db = rig.db.count() != 0 and rig.rng.float(f32) < in_db_p;
     const store_id = if (in_db) try map_choose(rig.rng, rig.db, StoreId)
@@ -309,9 +295,10 @@ fn random_store_with_p(rig: *TestRig, arena: Allocator, in_db_p: f32)
     return .{store_id, in_db};
 }
 
-fn sorted_map_keys(arena: Allocator, Key: type, map: anytype) ![]Key {
+fn sortedMapKeys(Key: type, map: anytype, arena: Allocator) ![]Key {
     const size = map.count();
     const out = try arena.alloc(Key, size);
+    errdefer arena.free(out);
     var map_iter = map.keyIterator();
     for (out) |*elem| {
         elem.* = map_iter.next().?.*;
@@ -321,7 +308,7 @@ fn sorted_map_keys(arena: Allocator, Key: type, map: anytype) ![]Key {
     return out;
 }
 
-fn sort_matrix(Row: type, matrix: []Row) void {
+fn sortMatrix(Row: type, matrix: []Row) void {
     switch (Row) {
         StoreId => std.mem.sort(StoreId, matrix, {}, storeIdLessThan),
         BlobId => std.mem.sort(BlobId, matrix, {}, blobIdLessThan),
@@ -337,12 +324,12 @@ fn blobIdLessThan(_: void, a: BlobId, b: BlobId) bool {
     return std.mem.lessThan(u8, &a, &b);
 }
 
-fn map_choose(rng: Random, map: anytype, Val: type) !Val {
+fn mapChoose(Val: Type, map: anytype, arena: Allocator) !Val {
     const index = rng.uintLessThan(usize, map.count());
-    return map_index(map, index, Val);
+    return map_index(Val, map, index);
 }
 
-fn map_index(map: anytype, index: usize, Val: type) !Val {
+fn mapIndex(Val: Type, map: anytype, index: usize) !Val {
     var map_iter = map.keyIterator();
     for (0 .. index) |_| {
         _ = map_iter.next().?;

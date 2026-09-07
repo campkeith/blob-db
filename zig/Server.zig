@@ -9,8 +9,12 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
+const debug = @import("debug.zig");
+const Fmt = debug.Fmt;
+
 const ty = @import("types.zig");
 const funcs = @import("funcs.zig");
+const trash = @import("trash.zig");
 const Persister = @import("Persister.zig");
 const send_recv = @import("send_recv.zig");
 
@@ -44,9 +48,8 @@ pub fn go(self: *Self, arena: Allocator) !void {
     };
     var server = try self.address.listen(self.io, opts);
     defer server.deinit(self.io);
-    const addr_str = format_address(server.socket.address);
     self.running = true;
-    funcs.debug("Server at {s} is up.\n", .{addr_str});
+    funcs.println("Server at {f} is up.", .{Fmt(server.socket.address)});
 
     var select_buf: [2]AcceptSleepResult = undefined;
     var select: Selector = .init(self.io, &select_buf);
@@ -60,12 +63,12 @@ pub fn go(self: *Self, arena: Allocator) !void {
                 {
                     var stream = accept_result catch |err| switch (err) {
                         error.SocketNotListening, error.WouldBlock => {
-                            funcs.debug("Fatal server error: {any}\n", .{err});
+                            funcs.println("Fatal server error: {t}", .{err});
                             return err;
                         },
                         else => {
-                            funcs.debug("Error connecting to client: {any}\n",
-                                        .{err});
+                            funcs.println("Error connecting to client: {t}",
+                                          .{err});
                             continue;
                         },
                     };
@@ -96,16 +99,15 @@ fn start_sleep(self: *Self, select: *Selector) void {
 
 fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     const peer_addr = peer_address(stream) catch null;
-    const peer_addr_str = format_address(peer_addr);
-    funcs.debug("Client at {s} connected.\n", .{peer_addr_str});
+    funcs.println("Client at {f} connected.", .{Fmt(peer_addr)});
 
     self.handle_stream(arena, stream) catch |raw_err| {
         const err = handle_error(raw_err);
-        funcs.debug("Dropping client at {s} due to {any}.\n",
-                    .{peer_addr_str, err});
+        funcs.println("Dropping client at {f} due to {t}.",
+                      .{Fmt(peer_addr), err});
         return;
     };
-    funcs.debug("Client at {s} disconnected.\n", .{peer_addr_str});
+    funcs.println("Client at {f} disconnected.", .{Fmt(peer_addr)});
 }
 
 fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
@@ -122,24 +124,24 @@ fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
 }
 
 fn shake_hands(in: *Reader, out: *Writer) !void {
-    send_recv.recv_open_door(in) catch |err| return switch (err) {
+    send_recv.recvOpenDoor(in) catch |err| return switch (err) {
         ty.Err.BadArgument => out: {
-            try send_recv.send_not_welcome(out);
+            try send_recv.sendNotWelcome(out);
             break :out ty.Err.BadArgument;
         },
         else => err,
     };
-    try send_recv.send_welcome(out);
+    try send_recv.sendWelcome(out);
 }
 
 fn handle_request(self: *Self, arena: Allocator,
                       in: *Reader, out: *Writer) !bool {
-    const request = try send_recv.recv_request(in, arena);
-    defer request.deinit(arena);
+    const request = try send_recv.recvRequest(in, arena);
+    defer trash.recycle(request, arena);
     const response = self.process_request(arena, request)
         orelse return false;
-    defer response.deinit(arena);
-    try send_recv.send_response(out, response);
+    defer trash.recycle(response, arena);
+    try send_recv.sendResponse(out, response);
     return true;
 }
 
@@ -182,8 +184,8 @@ fn handle_error(err: anytype) ty.Err {
     return switch (err) {
         ty.Err.NotFound, ty.Err.Exists, ty.Err.BadArgument, ty.Err.Internal =>
             |err_| err_,
-        else => {
-            funcs.debug("handle_error: Unexpected internal error: {}\n", .{err});
+        else => unexpected: {
+            funcs.println("handle_error: Unexpected internal error: {t}", .{err});
             if (@errorReturnTrace()) |trace| {
                 const size = @min(trace.index, trace.instruction_addresses.len);
                 std.debug.dumpStackTrace(&.{
@@ -191,26 +193,9 @@ fn handle_error(err: anytype) ty.Err {
                     .skipped = .none,
                 });
             }
-            return ty.Err.Internal;
+            break :unexpected ty.Err.Internal;
         }
     };
-}
-
-fn format_address(opt_address: ?IpAddress) [64]u8 {
-    var buf: [64]u8 = .{0} ** 64;
-    var out = Writer.fixed(&buf);
-    if (opt_address) |address| {
-        address.format(&out) catch {
-            write_placeholder(&out);
-        };
-    } else {
-        write_placeholder(&out);
-    }
-    return buf;
-}
-
-fn write_placeholder(out: *Writer) void {
-    out.writeAll("?") catch {};
 }
 
 fn peer_address(stream: *Stream) !IpAddress {
