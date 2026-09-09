@@ -283,7 +283,7 @@ fn recvStruct(in: *Reader, arena: Allocator, Struct: type) !Struct {
     const fields = std.meta.fields(Struct);
     inline for (fields, 0..) |field, index| {
         errdefer inline for (fields[0..index]) |recvd_field|
-            trash.recycle(@field(out, recvd_field.name), arena);
+            trash.recycle(&@field(out, recvd_field.name), arena);
         @field(out, field.name) = try recv(in, arena, field.type);
     }
     return out;
@@ -295,7 +295,7 @@ fn recvStoreIds(in: *Reader, arena: Allocator) !StoreIds {
     errdefer trash.recycleArrayList(&list, arena);
     for (0..size) |_| {
         const item = try recvStoreId(in, arena);
-        errdefer trash.recycle(item, arena);
+        errdefer trash.recycle(&item, arena);
         try list.append(arena, item);
     }
     return try list.toOwnedSlice(arena);

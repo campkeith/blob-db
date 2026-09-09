@@ -136,11 +136,11 @@ fn shakeHands(in: *Reader, out: *Writer) !void {
 
 fn handleRequest(self: *Self, arena: Allocator,
                       in: *Reader, out: *Writer) !bool {
-    const request = try send_recv.recvRequest(in, arena);
-    defer trash.recycle(request, arena);
-    const response = self.processRequest(arena, request)
+    var request = try send_recv.recvRequest(in, arena);
+    defer trash.recycle(&request, arena);
+    var response = self.processRequest(arena, request)
         orelse return false;
-    defer trash.recycle(response, arena);
+    defer trash.recycle(&response, arena);
     try send_recv.sendResponse(out, response);
     return true;
 }
@@ -159,23 +159,23 @@ fn processRequest(self: *Self, arena: Allocator, request: ty.Request)
 fn processCallRequest(self: *Self, arena: Allocator, call: ty.Request.Call)
         !ty.Response.Call {
     return switch (call) {
-        .storeList => .{.storeList =
+        .store_list => .{.store_list =
             try self.inner.storeList(arena)},
-        .storeCreate => |store_id| .{.storeCreate =
+        .store_create => |store_id| .{.store_create =
             try self.inner.storeCreate(store_id)},
-        .storeDestroy => |store_id| .{.storeDestroy =
+        .store_destroy => |store_id| .{.store_destroy =
             try self.inner.storeDestroy(store_id)},
         .blob_hash => |blob| .{.blob_hash =
             try funcs.hashBlob(arena, blob)},
-        .blobList => |store_id| .{.blobList =
+        .blob_list => |store_id| .{.blob_list =
             try self.inner.blobList(arena, store_id)},
-        .blobInfo => |args| .{.blobInfo =
+        .blob_info => |args| .{.blob_info =
             try self.inner.blobInfo(args.store_id, args.blob_id)},
-        .blobLoad => |args| .{.blobLoad =
+        .blob_load => |args| .{.blob_load =
             try self.inner.blobLoad(args.store_id, args.blob_id)},
-        .blobSave => |args| .{.blobSave =
+        .blob_save => |args| .{.blob_save =
             try self.inner.blobSave(args.store_id, args.blob)},
-        .blobDelete => |args| .{.blobDelete =
+        .blob_delete => |args| .{.blob_delete =
             try self.inner.blobDelete(args.store_id, args.blob_id)},
     };
 }

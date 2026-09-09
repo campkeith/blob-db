@@ -24,7 +24,7 @@ out: std.Io.net.Stream.Writer,
 read_buf: []u8,
 write_buf: []u8,
 
-pub const connect = log.call(Self, "connect", connect);
+pub const connect = log.call(Self, "connect", _connect);
 fn _connect(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
     const BUF_SIZE = 4096;
 
@@ -57,7 +57,7 @@ fn shakeHands(self: *Self) !void {
     try send_recv.recvWelcome(&self.in.interface);
 }
 
-pub const close = log.call(Self, "close", close);
+pub const close = log.call(Self, "close", _close);
 fn _close(self: *Self, arena: Allocator) void {
     send_recv.sendRequest(&self.out.interface, .bye) catch |err| {
         funcs.println("Client.close: failed to send 'bye' due to {t}.", .{err});
@@ -86,7 +86,7 @@ fn _storeDestroy(self: *Self, store_id: StoreId) !void {
     return try self.remoteCall(null, .store_destroy, store_id);
 }
 
-pub const blobHas = log.call(Self, "blob_hash", _blobHash);
+pub const blobHash = log.call(Self, "blob_hash", _blobHash);
 fn _blobHash(self: *Self, blob: Blob) !ty.BlobId {
     return try self.remoteCall(null, .blob_hash, blob);
 }

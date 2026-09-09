@@ -169,6 +169,10 @@ pub fn structField(Obj: type, comptime name: []const u8)
     }.go;
 }
 
+pub fn argType(param: std.builtin.Type.Fn.Param) type {
+    return param.type.?;
+}
+
 pub fn returnTypeSansErr(Func: type) type {
     const Return = returnType(Func);
     return switch (@typeInfo(Return)) {

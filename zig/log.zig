@@ -8,7 +8,7 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
         @TypeOf(func) {
     const full_name = @typeName(Parent) ++ "." ++ name;
     const Func = @typeInfo(@TypeOf(func)).@"fn";
-    const Args = funcs.map(Func.params, argType);
+    const Args = funcs.map(Func.params, funcs.argType);
     const Return = Func.return_type.?;
 
     comptime return switch(Args.len) {
@@ -39,10 +39,6 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
         }.inner,
         else => unreachable,
     };
-}
-
-fn argType(param: Type.Fn.Param) type {
-    return param.type.?;
 }
 
 fn argsCallRet(comptime func: anytype, args: anytype, name: []const u8)

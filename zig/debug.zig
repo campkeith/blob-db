@@ -40,7 +40,7 @@ pub fn formatObj(obj: anytype, out: *Writer) !void {
             },
             .@"struct" => |struct_|
                 if (struct_.is_tuple) formatTuple(obj, out)
-                else formatStruct_opaque(obj, out),
+                else formatStructOpaque(obj, out),
             .void => out.writeAll("{}"),
             else => out.print("{any}", .{obj}),
         },
@@ -76,7 +76,7 @@ pub fn formatStruct(obj: anytype, out: *Writer) !void {
     try out.writeAll("}");
 }
 
-pub fn formatStruct_opaque(obj: anytype, out: *Writer) !void {
+pub fn formatStructOpaque(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
     try out.print("{s}{{..}}", .{@typeName(Obj)});
 }
