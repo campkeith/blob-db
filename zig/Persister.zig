@@ -43,11 +43,11 @@ fn _destroy(self: *Self) void {
 }
 
 pub fn format(self: Self, out: *std.Io.Writer) !void {
-    return debug.format_struct_opaque(self, out);
+    return debug.formatStructOpaque(self, out);
 }
 
-pub const store_list = log.call(Self, "store_list", _store_list);
-fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
+pub const storeList = log.call(Self, "store_list", _storeList);
+fn _storeList(self: *Self, arena: Allocator) !ty.StoreIds {
     var list: std.ArrayList(StoreId) = .empty;
     errdefer trash.recycleArrayList(&list, arena);
     var iterator = self.base_dir.iterate();
@@ -64,8 +64,8 @@ fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
     return try list.toOwnedSlice(arena);
 }
 
-pub const store_create = log.call(Self, "store_create", _store_create);
-fn _store_create(self: *Self, store_id: StoreId) !void {
+pub const storeCreate = log.call(Self, "storeCreate", _storeCreate);
+fn _storeCreate(self: *Self, store_id: StoreId) !void {
     self.base_dir.createDir(self.io, store_id.id, .default_dir)
         catch |err| return switch (err) {
             error.PathAlreadyExists => ty.Err.Exists,
@@ -74,9 +74,9 @@ fn _store_create(self: *Self, store_id: StoreId) !void {
         };
 }
 
-pub const store_destroy = log.call(Self, "store_destroy", _store_destroy);
-fn _store_destroy(self: *Self, store_id: StoreId) !void {
-    const temp_dirname = self.temp_name();
+pub const storeDestroy = log.call(Self, "storeDestroy", _storeDestroy);
+fn _storeDestroy(self: *Self, store_id: StoreId) !void {
+    const temp_dirname = self.tempName();
     self.base_dir.rename(store_id.id, self.base_dir, &temp_dirname, self.io)
         catch |err| return switch (err) {
             error.FileNotFound => ty.Err.NotFound,
@@ -85,11 +85,11 @@ fn _store_destroy(self: *Self, store_id: StoreId) !void {
     try self.base_dir.deleteTree(self.io, &temp_dirname);
 }
 
-pub const blob_list = log.call(Self, "blob_list", _blob_list);
-fn _blob_list(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
+pub const blobList = log.call(Self, "blob_list", _blobList);
+fn _blobList(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
     var list: std.ArrayList(BlobId) = .empty;
     errdefer list.deinit(arena);
-    var store_dir = try self.open_store_dir(store_id);
+    var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
     var iterator = store_dir.iterate();
     while (try iterator.next(self.io)) |entry| {
@@ -104,9 +104,9 @@ fn _blob_list(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
     return try list.toOwnedSlice(arena);
 }
 
-pub const blob_info = log.call(Self, "blob_info", _blob_info);
-fn _blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
-    var store_dir = try self.open_store_dir(store_id);
+pub const blobInfo = log.call(Self, "blob_info", _blobInfo);
+fn _blobInfo(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
+    var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = funcs.hashBytesToHex(blob_id);
     const opts: Dir.StatFileOptions = .{
@@ -120,9 +120,9 @@ fn _blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
     return stat.size;
 }
 
-pub const blob_load = log.call(Self, "blob_load", _blob_load);
-fn _blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
-    var store_dir = try self.open_store_dir(store_id);
+pub const blobLoad = log.call(Self, "blob_load", _blobLoad);
+fn _blobLoad(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
+    var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = funcs.hashBytesToHex(blob_id);
     const opts: Dir.OpenFileOptions = .{
@@ -137,13 +137,13 @@ fn _blob_load(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob {
     return Blob.initFile(file, self.io);
 }
 
-pub const blob_save = log.call(Self, "blob_save", _blob_save);
-fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
+pub const blobSave = log.call(Self, "blob_save", _blobSave);
+fn _blobSave(self: *Self, store_id: StoreId, blob: Blob)
         !ty.Response.SaveStatusBlobId {
-    var store_dir = try self.open_store_dir(store_id);
+    var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
 
-    const temp_filename = self.temp_name();
+    const temp_filename = self.tempName();
     const opts = Dir.CreateFileOptions{
         .read = true,
         .exclusive = true,
@@ -179,9 +179,9 @@ fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
     return .init(.created, blob_id);
 }
 
-pub const blob_delete = log.call(Self, "blob_delete", _blob_delete);
-fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
-    var store_dir = try self.open_store_dir(store_id);
+pub const blobDelete = log.call(Self, "blob_delete", _blobDelete);
+fn _blobDelete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
+    var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
 
     const blob_id_str = funcs.hashBytesToHex(blob_id);
@@ -192,7 +192,7 @@ fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
         };
 }
 
-fn open_store_dir(self: *Self, store_id: StoreId) !Dir {
+fn openStoreDir(self: *Self, store_id: StoreId) !Dir {
     const options: Dir.OpenOptions = .{.iterate = true,
                                        .follow_symlinks = false};
     return self.base_dir.openDir(self.io, store_id.id, options)
@@ -210,7 +210,7 @@ fn nameToBlobId(name: []const u8) !BlobId {
     return funcs.hashHexToBytes(std.mem.bytesToValue(ty.BlobIdStr, name));
 }
 
-fn temp_name(self: *Self) TempName {
+fn tempName(self: *Self) TempName {
     var name: TempName = undefined;
     funcs.randomName(self.rng.random(), &name);
     return name;

@@ -15,12 +15,12 @@ fn Formatter(Obj: type) type {
         obj: Obj,
 
         pub fn format(self: @This(), out: *Writer) !void {
-            return format_obj(self.obj, out);
+            return formatObj(self.obj, out);
         }
     };
 }
 
-pub fn format_obj(obj: anytype, out: *Writer) !void {
+pub fn formatObj(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
     if ((@typeInfo(Obj) == .@"struct" or @typeInfo(Obj) == .@"union")
             and @hasDecl(Obj, "format")) {
@@ -28,44 +28,44 @@ pub fn format_obj(obj: anytype, out: *Writer) !void {
     } else try switch (Obj) {
         []const u8 => out.print("\"{s}\"", .{obj}),
         ty.BlobId => out.print("{s}", .{funcs.hashBytesToHex(obj)}),
-        ?IpAddress => format_address(obj, out),
-        std.mem.Allocator => format_struct(obj, out),
+        ?IpAddress => formatAddress(obj, out),
+        std.mem.Allocator => formatStruct(obj, out),
         else => switch (@typeInfo(Obj)) {
             .error_union =>
-                if (obj) |not_err| format_obj(not_err, out)
+                if (obj) |not_err| formatObj(not_err, out)
                     else |err| out.print("{t}", .{err}),
             .pointer => |pointer| switch (pointer.size) {
-                .slice => format_array(obj, out),
+                .slice => formatArray(obj, out),
                 else => out.print("{*}", .{obj}),
             },
             .@"struct" => |struct_|
-                if (struct_.is_tuple) format_tuple(obj, out)
-                else format_struct_opaque(obj, out),
+                if (struct_.is_tuple) formatTuple(obj, out)
+                else formatStruct_opaque(obj, out),
             .void => out.writeAll("{}"),
             else => out.print("{any}", .{obj}),
         },
     };
 }
 
-pub fn format_tuple(tuple: anytype, out: *Writer) !void {
+pub fn formatTuple(tuple: anytype, out: *Writer) !void {
     try out.writeAll("(");
     inline for (tuple, 0..) |item, index| {
-        try format_obj(item, out);
+        try formatObj(item, out);
         if (index < tuple.len - 1) try out.writeAll(", ");
     }
     try out.writeAll(")");
 }
 
-pub fn format_array(array: anytype, out: *Writer) !void {
+pub fn formatArray(array: anytype, out: *Writer) !void {
     try out.writeAll("[");
     for (array, 0..) |item, index| {
-        try format_obj(item, out);
+        try formatObj(item, out);
         if (index < array.len - 1) try out.writeAll(", ");
     }
     try out.writeAll("]");
 }
 
-pub fn format_struct(obj: anytype, out: *Writer) !void {
+pub fn formatStruct(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
     try out.print("{s}{{", .{@typeName(Obj)});
     const fields = std.meta.fields(Obj);
@@ -76,12 +76,12 @@ pub fn format_struct(obj: anytype, out: *Writer) !void {
     try out.writeAll("}");
 }
 
-pub fn format_struct_opaque(obj: anytype, out: *Writer) !void {
+pub fn formatStruct_opaque(obj: anytype, out: *Writer) !void {
     const Obj = @TypeOf(obj);
     try out.print("{s}{{..}}", .{@typeName(Obj)});
 }
 
-fn format_address(opt_address: ?std.Io.net.IpAddress, out: *Writer) !void {
+fn formatAddress(opt_address: ?std.Io.net.IpAddress, out: *Writer) !void {
     if (opt_address) |address| address.format(out) catch writePlaceholder(out)
         else writePlaceholder(out);
 }

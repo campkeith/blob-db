@@ -24,7 +24,7 @@ out: std.Io.net.Stream.Writer,
 read_buf: []u8,
 write_buf: []u8,
 
-pub const connect = log.call(Self, "connect", _connect);
+pub const connect = log.call(Self, "connect", connect);
 fn _connect(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
     const BUF_SIZE = 4096;
 
@@ -48,16 +48,16 @@ fn _connect(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
         .read_buf = read_buf,
         .write_buf = write_buf,
     };
-    try client.shake_hands();
+    try client.shakeHands();
     return client;
 }
 
-fn shake_hands(self: *Self) !void {
+fn shakeHands(self: *Self) !void {
     try send_recv.sendOpenDoor(&self.out.interface);
     try send_recv.recvWelcome(&self.in.interface);
 }
 
-pub const close = log.call(Self, "close", _close);
+pub const close = log.call(Self, "close", close);
 fn _close(self: *Self, arena: Allocator) void {
     send_recv.sendRequest(&self.out.interface, .bye) catch |err| {
         funcs.println("Client.close: failed to send 'bye' due to {t}.", .{err});
@@ -68,57 +68,57 @@ fn _close(self: *Self, arena: Allocator) void {
 }
 
 pub fn format(self: Self, out: *std.Io.Writer) !void {
-    return debug.format_struct_opaque(self, out);
+    return debug.formatStructOpaque(self, out);
 }
 
-pub const store_list = log.call(Self, "store_list", _store_list);
-fn _store_list(self: *Self, arena: Allocator) !ty.StoreIds {
-    return try self.remote_call(arena, .store_list, {});
+pub const storeList = log.call(Self, "store_list", _storeList);
+fn _storeList(self: *Self, arena: Allocator) !ty.StoreIds {
+    return try self.remoteCall(arena, .store_list, {});
 }
 
-pub const store_create = log.call(Self, "store_create", _store_create);
-fn _store_create(self: *Self, store_id: StoreId) !void {
-    return try self.remote_call(null, .store_create, store_id);
+pub const storeCreate = log.call(Self, "store_create", _storeCreate);
+fn _storeCreate(self: *Self, store_id: StoreId) !void {
+    return try self.remoteCall(null, .store_create, store_id);
 }
 
-pub const store_destroy = log.call(Self, "store_destroy", _store_destroy);
-fn _store_destroy(self: *Self, store_id: StoreId) !void {
-    return try self.remote_call(null, .store_destroy, store_id);
+pub const storeDestroy = log.call(Self, "store_destroy", _storeDestroy);
+fn _storeDestroy(self: *Self, store_id: StoreId) !void {
+    return try self.remoteCall(null, .store_destroy, store_id);
 }
 
-pub const blob_hash = log.call(Self, "blob_hash", _blob_hash);
-fn _blob_hash(self: *Self, blob: Blob) !ty.BlobId {
-    return try self.remote_call(null, .blob_hash, blob);
+pub const blobHas = log.call(Self, "blob_hash", _blobHash);
+fn _blobHash(self: *Self, blob: Blob) !ty.BlobId {
+    return try self.remoteCall(null, .blob_hash, blob);
 }
 
-pub const blob_list = log.call(Self, "blob_list", _blob_list);
-fn _blob_list(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
-    return try self.remote_call(arena, .blob_list, store_id);
+pub const blobList = log.call(Self, "blob_list", _blobList);
+fn _blobList(self: *Self, arena: Allocator, store_id: StoreId) !ty.BlobIds {
+    return try self.remoteCall(arena, .blob_list, store_id);
 }
 
-pub const blob_info = log.call(Self, "blob_info", _blob_info);
-fn _blob_info(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
-    return try self.remote_call(null, .blob_info, .init(store_id, blob_id));
+pub const blobInfo = log.call(Self, "blob_info", _blobInfo);
+fn _blobInfo(self: *Self, store_id: StoreId, blob_id: BlobId) !Blob.Size {
+    return try self.remoteCall(null, .blob_info, .init(store_id, blob_id));
 }
 
-pub const blob_load = log.call(Self, "blob_load", _blob_load);
-fn _blob_load(self: *Self, arena: Allocator,
+pub const blobLoad = log.call(Self, "blob_load", _blobLoad);
+fn _blobLoad(self: *Self, arena: Allocator,
               store_id: StoreId, blob_id: BlobId) !Blob {
-    return try self.remote_call(arena, .blob_load, .init(store_id, blob_id));
+    return try self.remoteCall(arena, .blob_load, .init(store_id, blob_id));
 }
 
-pub const blob_save = log.call(Self, "blob_save", _blob_save);
-fn _blob_save(self: *Self, store_id: StoreId, blob: Blob)
+pub const blobSave = log.call(Self, "blob_save", _blobSave);
+fn _blobSave(self: *Self, store_id: StoreId, blob: Blob)
         !Response.SaveStatusBlobId  {
-    return try self.remote_call(null, .blob_save, .init(store_id, blob));
+    return try self.remoteCall(null, .blob_save, .init(store_id, blob));
 }
 
-pub const blob_delete = log.call(Self, "blob_delete", _blob_delete);
-fn _blob_delete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
-    return try self.remote_call(null, .blob_delete, .init(store_id, blob_id));
+pub const blobDelete = log.call(Self, "blob_delete", _blobDelete);
+fn _blobDelete(self: *Self, store_id: StoreId, blob_id: BlobId) !void {
+    return try self.remoteCall(null, .blob_delete, .init(store_id, blob_id));
 }
 
-fn remote_call(self: *Self, arena: ?Allocator, comptime call_tag: ty.CallTag,
+fn remoteCall(self: *Self, arena: ?Allocator, comptime call_tag: ty.CallTag,
         args: @FieldType(Request.Call, @tagName(call_tag)))
             !@FieldType(Response.Call, @tagName(call_tag)) {
     const request = Request {

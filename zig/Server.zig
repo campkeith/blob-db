@@ -54,8 +54,8 @@ pub fn go(self: *Self, arena: Allocator) !void {
     var select_buf: [2]AcceptSleepResult = undefined;
     var select: Selector = .init(self.io, &select_buf);
     defer select.cancelDiscard();
-    self.start_accept(&select, &server);
-    self.start_sleep(&select);
+    self.startAccept(&select, &server);
+    self.startSleep(&select);
     while (self.running) {
         const result = try select.await();
         switch (result) {
@@ -75,11 +75,11 @@ pub fn go(self: *Self, arena: Allocator) !void {
                     defer stream.close(self.io);
                     self.clientSession(arena, &stream);
                 }
-                self.start_accept(&select, &server);
+                self.startAccept(&select, &server);
             },
             .sleep => |sleep_result| {
                 try sleep_result;
-                self.start_sleep(&select);
+                self.startSleep(&select);
             },
         }
     }
@@ -89,20 +89,20 @@ pub fn stop(self: *Self) void {
     self.running = false;
 }
 
-fn start_accept(self: *Self, select: *Selector, server: *Server) void {
+fn startAccept(self: *Self, select: *Selector, server: *Server) void {
     select.async(.accept, Server.accept, .{server, self.io});
 }
 
-fn start_sleep(self: *Self, select: *Selector) void {
+fn startSleep(self: *Self, select: *Selector) void {
     select.async(.sleep, Io.sleep, .{self.io, .fromSeconds(1), .awake});
 }
 
 fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
-    const peer_addr = peer_address(stream) catch null;
+    const peer_addr = peerAddress(stream) catch null;
     funcs.println("Client at {f} connected.", .{Fmt(peer_addr)});
 
-    self.handle_stream(arena, stream) catch |raw_err| {
-        const err = handle_error(raw_err);
+    self.handleStream(arena, stream) catch |raw_err| {
+        const err = handleError(raw_err);
         funcs.println("Dropping client at {f} due to {t}.",
                       .{Fmt(peer_addr), err});
         return;
@@ -110,7 +110,7 @@ fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     funcs.println("Client at {f} disconnected.", .{Fmt(peer_addr)});
 }
 
-fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
+fn handleStream(self: *Self, arena: Allocator, stream: *Stream) !void {
     const BUF_SIZE = 4096;
     const read_buf = try arena.alloc(u8, BUF_SIZE);
     defer arena.free(read_buf);
@@ -119,11 +119,11 @@ fn handle_stream(self: *Self, arena: Allocator, stream: *Stream) !void {
     defer arena.free(write_buf);
     var out = stream.writer(self.io, write_buf);
 
-    try shake_hands(&in.interface, &out.interface);
-    while (try self.handle_request(arena, &in.interface, &out.interface)) {}
+    try shakeHands(&in.interface, &out.interface);
+    while (try self.handleRequest(arena, &in.interface, &out.interface)) {}
 }
 
-fn shake_hands(in: *Reader, out: *Writer) !void {
+fn shakeHands(in: *Reader, out: *Writer) !void {
     send_recv.recvOpenDoor(in) catch |err| return switch (err) {
         ty.Err.BadArgument => out: {
             try send_recv.sendNotWelcome(out);
@@ -134,58 +134,58 @@ fn shake_hands(in: *Reader, out: *Writer) !void {
     try send_recv.sendWelcome(out);
 }
 
-fn handle_request(self: *Self, arena: Allocator,
+fn handleRequest(self: *Self, arena: Allocator,
                       in: *Reader, out: *Writer) !bool {
     const request = try send_recv.recvRequest(in, arena);
     defer trash.recycle(request, arena);
-    const response = self.process_request(arena, request)
+    const response = self.processRequest(arena, request)
         orelse return false;
     defer trash.recycle(response, arena);
     try send_recv.sendResponse(out, response);
     return true;
 }
 
-fn process_request(self: *Self, arena: Allocator, request: ty.Request)
+fn processRequest(self: *Self, arena: Allocator, request: ty.Request)
         ?ty.Response {
     return switch (request) {
         .call => |call|
-            if (self.process_call_request(arena, call))
+            if (self.processCallRequest(arena, call))
                 |resp| .{.call = resp}
-                else |err| .{.err = handle_error(err)},
+                else |err| .{.err = handleError(err)},
         .bye => null,
     };
 }
 
-fn process_call_request(self: *Self, arena: Allocator, call: ty.Request.Call)
+fn processCallRequest(self: *Self, arena: Allocator, call: ty.Request.Call)
         !ty.Response.Call {
     return switch (call) {
-        .store_list => .{.store_list =
-            try self.inner.store_list(arena)},
-        .store_create => |store_id| .{.store_create =
-            try self.inner.store_create(store_id)},
-        .store_destroy => |store_id| .{.store_destroy =
-            try self.inner.store_destroy(store_id)},
+        .storeList => .{.storeList =
+            try self.inner.storeList(arena)},
+        .storeCreate => |store_id| .{.storeCreate =
+            try self.inner.storeCreate(store_id)},
+        .storeDestroy => |store_id| .{.storeDestroy =
+            try self.inner.storeDestroy(store_id)},
         .blob_hash => |blob| .{.blob_hash =
             try funcs.hashBlob(arena, blob)},
-        .blob_list => |store_id| .{.blob_list =
-            try self.inner.blob_list(arena, store_id)},
-        .blob_info => |args| .{.blob_info =
-            try self.inner.blob_info(args.store_id, args.blob_id)},
-        .blob_load => |args| .{.blob_load =
-            try self.inner.blob_load(args.store_id, args.blob_id)},
-        .blob_save => |args| .{.blob_save =
-            try self.inner.blob_save(args.store_id, args.blob)},
-        .blob_delete => |args| .{.blob_delete =
-            try self.inner.blob_delete(args.store_id, args.blob_id)},
+        .blobList => |store_id| .{.blobList =
+            try self.inner.blobList(arena, store_id)},
+        .blobInfo => |args| .{.blobInfo =
+            try self.inner.blobInfo(args.store_id, args.blob_id)},
+        .blobLoad => |args| .{.blobLoad =
+            try self.inner.blobLoad(args.store_id, args.blob_id)},
+        .blobSave => |args| .{.blobSave =
+            try self.inner.blobSave(args.store_id, args.blob)},
+        .blobDelete => |args| .{.blobDelete =
+            try self.inner.blobDelete(args.store_id, args.blob_id)},
     };
 }
 
-fn handle_error(err: anytype) ty.Err {
+fn handleError(err: anytype) ty.Err {
     return switch (err) {
         ty.Err.NotFound, ty.Err.Exists, ty.Err.BadArgument, ty.Err.Internal =>
             |err_| err_,
         else => unexpected: {
-            funcs.println("handle_error: Unexpected internal error: {t}", .{err});
+            funcs.println("handleError: Unexpected internal error: {t}", .{err});
             if (@errorReturnTrace()) |trace| {
                 const size = @min(trace.index, trace.instruction_addresses.len);
                 std.debug.dumpStackTrace(&.{
@@ -198,7 +198,7 @@ fn handle_error(err: anytype) ty.Err {
     };
 }
 
-fn peer_address(stream: *Stream) !IpAddress {
+fn peerAddress(stream: *Stream) !IpAddress {
     var addr_buf: sockaddr.storage = undefined;
     var size: std.posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
     const address: *sockaddr = @ptrCast(&addr_buf);
