@@ -11,38 +11,34 @@ const CallTag = ty.CallTag;
 const Request = ty.Request;
 const Response = ty.Response;
 const StoreId = ty.StoreId;
-const StoreIds = ty.StoreIds;
-const BlobId = ty.BlobId;
-const BlobIds = ty.BlobIds;
-const Blob = ty.Blob;
 
-const funcs = @import("funcs.zig");
-const debug = @import("debug.zig");
+const fns = @import("functions.zig");
+const encode8 = fns.encode8;
+
+const Blob = @import("Blob.zig");
 const trash = @import("trash.zig");
-
-const ReaderWriterError = Writer.Error || Reader.Error;
 
 const ProtoVersion = u16;
 const StoreIdSize = u16;
 const ArraySize = u64;
 
 const proto_version: ProtoVersion = 1;
-const code_open_door = ty.encode8("OpenDoor");
+const code_open_door = encode8("OpenDoor");
 
 const GreetCode = enum(Code) {
-    welcome = ty.encode8("Welcome!"),
-    not_welcome = ty.encode8("Go away!"),
+    welcome = encode8("Welcome!"),
+    not_welcome = encode8("Go away!"),
 };
 
-const code_bye = ty.encode8("Goodbye!");
+const code_bye = encode8("Goodbye!");
 
 const Status = enum(Code) {
-    okay = ty.encode8("okeydoke"),
-    exists = ty.encode8("itexists"),
-    not_found = ty.encode8("notfound"),
-    no_space = ty.encode8("no-space"),
-    bad_argument = ty.encode8("invalarg"),
-    internal_error = ty.encode8("internal"),
+    okay = encode8("okeydoke"),
+    exists = encode8("itexists"),
+    not_found = encode8("notfound"),
+    no_space = encode8("no-space"),
+    bad_argument = encode8("invalarg"),
+    internal_error = encode8("internal"),
 };
 
 pub fn sendOpenDoor(out: *Writer) !void {
@@ -92,20 +88,27 @@ fn errorToStatus(err: Err) Status {
     };
 }
 
+fn saveStatusToStatus(status: Response.SaveStatus) Status {
+    return switch (status) {
+        .created => Status.okay,
+        .exists => Status.exists,
+    };
+}
+
 fn send(out: *Writer, obj: anytype) !void {
     return switch (@TypeOf(obj)) {
         Request.StoreIdBlobId, Request.StoreIdBlob => sendStruct(out, obj),
-        StoreIds => sendStoreIds(out, obj),
+        []StoreId => sendStoreIds(out, obj),
         StoreId => sendStoreId(out, obj),
-        BlobIds => sendBlobIds(out, obj),
-        BlobId => sendArray(out, @as([]const u8, &obj)),
+        []Blob.Id => sendBlobIds(out, obj),
+        Blob.Id => sendArray(out, @as([]const u8, &obj)),
         Blob => sendBlob(out, obj),
         GreetCode, CallTag, Status => sendEnum(out, obj),
         Response.SaveStatus => sendEnum(out, saveStatusToStatus(obj)),
         u16, u64 => sendInt(out, obj),
         void => {},
         else => err: {
-            funcs.println("send: {any} is not supported.", .{@TypeOf(obj)});
+            fns.println("send: {any} is not supported.", .{@TypeOf(obj)});
             break :err Err.Internal;
         },
     };
@@ -117,14 +120,7 @@ fn sendStruct(out: *Writer, struct_: anytype) !void {
     }
 }
 
-fn saveStatusToStatus(status: ty.Response.SaveStatus) Status {
-    return switch (status) {
-        .created => Status.okay,
-        .exists => Status.exists,
-    };
-}
-
-fn sendStoreIds(out: *Writer, store_ids: StoreIds) !void {
+fn sendStoreIds(out: *Writer, store_ids: []StoreId) !void {
     const size: ArraySize = store_ids.len;
     try sendInt(out, size);
     for (store_ids) |store_id| {
@@ -138,7 +134,7 @@ fn sendStoreId(out: *Writer, store_id: StoreId) !void {
     try sendArray(out, store_id.id);
 }
 
-fn sendBlobIds(out: *Writer, blob_ids: BlobIds) !void {
+fn sendBlobIds(out: *Writer, blob_ids: []Blob.Id) !void {
     const size: ArraySize = blob_ids.len;
     try sendInt(out, size);
     try sendArray(out, std.mem.sliceAsBytes(blob_ids));
@@ -147,7 +143,7 @@ fn sendBlobIds(out: *Writer, blob_ids: BlobIds) !void {
 fn sendBlob(out: *Writer, blob: Blob) !void {
     const size: ArraySize = try blob.size();
     try sendInt(out, size);
-    switch (blob) {
+    switch (blob.core) {
         .stream => |in| {
             try in.reader.streamExact(out, size);
         },
@@ -155,7 +151,7 @@ fn sendBlob(out: *Writer, blob: Blob) !void {
             var reader = file.file.reader(file.io, &.{});
             const sent_size = try out.sendFileAll(&reader, .limited(size));
             if (sent_size != size) {
-                funcs.println("send_blob: Warning: only {d}/{d} bytes sent.",
+                fns.println("send_blob: Warning: only {d}/{d} bytes sent.",
                               .{sent_size, size});
             }
         },
@@ -194,7 +190,7 @@ pub fn recvWelcome(in: *Reader) !void {
         .welcome => {},
         .not_welcome => err: {
             const recvd_proto_version = try recvInt(in, ProtoVersion);
-            funcs.println("recv_welcome: server says we are not welcome; "
+            fns.println("recv_welcome: server says we are not welcome; "
                           ++ "client: v{d}, server: v{d}",
                           .{proto_version, recvd_proto_version});
             break :err Err.BadArgument;
@@ -238,7 +234,7 @@ fn statusToSaveStatus(status: Status) !Response.SaveStatus {
         .okay => .created,
         .exists => .exists,
         else => err: {
-            funcs.println("statusToSaveStatus: unexpected status {t}",
+            fns.println("statusToSaveStatus: unexpected status {t}",
                           .{status});
             break :err Err.Internal;
         }
@@ -253,7 +249,7 @@ fn statusToError(status: Status) Err {
         .bad_argument => Err.BadArgument,
         .internal_error => Err.Internal,
         .okay => err: {
-            funcs.writeln("status_to_error: 'Okay' is not an error!");
+            fns.writeln("status_to_error: 'Okay' is not an error!");
             break :err Err.Internal;
         }
     };
@@ -263,16 +259,16 @@ fn recv(in: *Reader, arena: Allocator, ObjType: type) !ObjType {
     return switch (ObjType) {
         Request.StoreIdBlobId, Request.StoreIdBlob,
             Response.SaveStatusBlobId => try recvStruct(in, arena, ObjType),
-        StoreIds => try recvStoreIds(in, arena),
+        []StoreId => try recvStoreIds(in, arena),
         StoreId => try recvStoreId(in, arena),
-        BlobIds => try recvBlobIds(in, arena),
-        BlobId => try recvBlobId(in),
+        []Blob.Id => try recvBlobIds(in, arena),
+        Blob.Id => try recvBlobId(in),
         Blob => try recvBlob(in, arena),
         GreetCode, CallTag, Status => try recvEnum(in, ObjType),
         u16, u64 => try recvInt(in, ObjType),
         void => {},
         else => err: {
-            funcs.println("recv: {any} is not supported.", .{ObjType});
+            fns.println("recv: {any} is not supported.", .{ObjType});
             break :err Err.Internal;
         },
     };
@@ -289,7 +285,7 @@ fn recvStruct(in: *Reader, arena: Allocator, Struct: type) !Struct {
     return out;
 }
 
-fn recvStoreIds(in: *Reader, arena: Allocator) !StoreIds {
+fn recvStoreIds(in: *Reader, arena: Allocator) ![]StoreId {
     const size = try recvInt(in, ArraySize);
     var list: std.ArrayList(StoreId) = try .initCapacity(arena, size);
     errdefer trash.recycleArrayList(&list, arena);
@@ -309,16 +305,16 @@ fn recvStoreId(in: *Reader, arena: Allocator) !StoreId {
     return .init(store_id);
 }
 
-fn recvBlobIds(in: *Reader, arena: Allocator) !BlobIds {
+fn recvBlobIds(in: *Reader, arena: Allocator) ![]Blob.Id {
     const size = try recvInt(in, ArraySize);
-    const blob_ids = try arena.alloc(BlobId, size);
+    const blob_ids = try arena.alloc(Blob.Id, size);
     errdefer arena.free(blob_ids);
     try recvArray(in, u8, std.mem.sliceAsBytes(blob_ids));
     return blob_ids;
 }
 
-fn recvBlobId(in: *Reader) !BlobId {
-    var blob_id: BlobId = undefined;
+fn recvBlobId(in: *Reader) !Blob.Id {
+    var blob_id: Blob.Id = undefined;
     try recvArray(in, u8, &blob_id);
     return blob_id;
 }
@@ -340,8 +336,8 @@ fn recvInt(in: *Reader, IntType: type) !IntType {
 
 fn parseEnumTag(Enum: type, tag: anytype) !Enum {
     return if (std.enums.fromInt(Enum, tag)) |val| val else err: {
-        funcs.println("parse_enum_tag: '{s}' is not a {s} value.",
-                     .{ty.decode8(tag), @typeName(Enum)});
+        fns.println("parse_enum_tag: '{s}' is not a {s} value.",
+                     .{fns.decode8(tag), @typeName(Enum)});
         break :err Err.BadArgument;
     };
 }

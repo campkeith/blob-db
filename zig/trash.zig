@@ -6,7 +6,7 @@ const Allocator = std.mem.Allocator;
 const ty = @import("types.zig");
 const Err = ty.Err;
 
-const funcs = @import("funcs.zig");
+const fns = @import("functions.zig");
 
 pub fn recycle(obj: anytype, arena: Allocator) void {
     const Obj = @TypeOf(obj);
@@ -28,7 +28,7 @@ pub fn recycle(obj: anytype, arena: Allocator) void {
             else => Err.Internal,
         },
         else => Err.Internal,
-    }) catch funcs.println("recycle: Ignoring unknown {any} object.", .{Obj});
+    }) catch fns.println("recycle: Ignoring unknown {any} object.", .{Obj});
 }
 
 fn recycleStruct(struct_ptr: anytype, arena: Allocator) void {

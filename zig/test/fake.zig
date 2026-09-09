@@ -3,20 +3,22 @@ const Random = std.Random;
 const Allocator = std.mem.Allocator;
 
 const ty = @import("blob-db/types.zig");
-const funcs = @import("blob-db/funcs.zig");
+const StoreId = ty.StoreId;
 
-pub const StoreId = []u8;
+const fns = @import("blob-db/functions.zig");
+const RealBlob = @import("blob-db/Blob.zig");
+
 pub const Blob = []u8;
 
 pub fn storeId(rng: Random, arena: Allocator,
-                min_size: usize, max_size: usize) !ty.StoreId {
+                min_size: usize, max_size: usize) !StoreId {
     const size = sizeGeometric(rng, min_size, max_size);
-    const id = try funcs.randomNameAlloc(rng, arena, size);
+    const id = try fns.randomNameAlloc(rng, arena, size);
     return .init(id);
 }
 
-pub fn blobId(rng: Random) ty.BlobId {
-    var out: ty.BlobId = undefined;
+pub fn blobId(rng: Random) RealBlob.Id {
+    var out: RealBlob.Id = undefined;
     rng.bytes(&out);
     return out;
 }

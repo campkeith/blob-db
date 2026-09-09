@@ -1,14 +1,16 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
-const debug = @import("debug.zig");
-const funcs = @import("funcs.zig");
+const fmt = @import("format.zig");
+const Fmt = fmt.Fmt;
+
+const fns = @import("functions.zig");
 
 pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
         @TypeOf(func) {
     const full_name = @typeName(Parent) ++ "." ++ name;
     const Func = @typeInfo(@TypeOf(func)).@"fn";
-    const Args = funcs.map(Func.params, funcs.argType);
+    const Args = fns.map(Func.params, fns.argType);
     const Return = Func.return_type.?;
 
     comptime return switch(Args.len) {
@@ -42,9 +44,9 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
 }
 
 fn argsCallRet(comptime func: anytype, args: anytype, name: []const u8)
-        funcs.returnType(@TypeOf(func)) {
-    funcs.println("{s}{f}:", .{name, debug.Fmt(args)});
+        fns.returnType(@TypeOf(func)) {
+    fns.println("{s}{f}:", .{name, Fmt(args)});
     const result = @call(.auto, func, args);
-    funcs.println("{s} -> {f}", .{name, debug.Fmt(result)});
+    fns.println("{s} -> {f}", .{name, Fmt(result)});
     return result;
 }

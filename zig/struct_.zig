@@ -1,7 +1,7 @@
 const std = @import("std");
 const Type = std.builtin.Type;
 
-const funcs = @import("funcs.zig");
+const fns = @import("functions.zig");
 
 pub fn init(Obj: type) Return: {
     const types = fieldTypes(Obj);
@@ -35,7 +35,7 @@ pub fn init(Obj: type) Return: {
 
 fn fieldTypes(Obj: type) [std.meta.fields(Obj).len]type {
     const fields = std.meta.fields(Obj);
-    return funcs.map(fields, funcs.structField(Type.StructField, "type"));
+    return fns.map(fields, fns.structField(Type.StructField, "type"));
 }
 
 fn makeStruct(Obj: type, initializer: anytype) Obj {

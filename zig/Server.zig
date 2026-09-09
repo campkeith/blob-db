@@ -9,11 +9,16 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
-const debug = @import("debug.zig");
-const Fmt = debug.Fmt;
+const fmt = @import("format.zig");
+const Fmt = fmt.Fmt;
 
 const ty = @import("types.zig");
-const funcs = @import("funcs.zig");
+const Err = ty.Err;
+const Request = ty.Request;
+const Response = ty.Response;
+
+const fns = @import("functions.zig");
+const Blob = @import("Blob.zig");
 const trash = @import("trash.zig");
 const Persister = @import("Persister.zig");
 const send_recv = @import("send_recv.zig");
@@ -22,8 +27,8 @@ const Self = @This();
 
 const Selector = Io.Select(AcceptSleepResult);
 const AcceptSleepResult = union(enum) {
-    accept: funcs.returnType(@TypeOf(Server.accept)),
-    sleep: funcs.returnType(@TypeOf(Io.sleep)),
+    accept: fns.returnType(@TypeOf(Server.accept)),
+    sleep: fns.returnType(@TypeOf(Io.sleep)),
 };
 
 io: Io,
@@ -32,7 +37,7 @@ address: IpAddress,
 running: bool,
 
 pub fn create(init: std.process.Init, inner: *Persister) !Self {
-    const address_str = try funcs.getEnv(init.environ_map, "BIND_ADDRESS");
+    const address_str = try fns.getEnv(init.environ_map, "BIND_ADDRESS");
     const address = try IpAddress.parseLiteral(address_str);
     return .{
         .io = init.io,
@@ -49,7 +54,7 @@ pub fn go(self: *Self, arena: Allocator) !void {
     var server = try self.address.listen(self.io, opts);
     defer server.deinit(self.io);
     self.running = true;
-    funcs.println("Server at {f} is up.", .{Fmt(server.socket.address)});
+    fns.println("Server at {f} is up.", .{Fmt(server.socket.address)});
 
     var select_buf: [2]AcceptSleepResult = undefined;
     var select: Selector = .init(self.io, &select_buf);
@@ -63,11 +68,11 @@ pub fn go(self: *Self, arena: Allocator) !void {
                 {
                     var stream = accept_result catch |err| switch (err) {
                         error.SocketNotListening, error.WouldBlock => {
-                            funcs.println("Fatal server error: {t}", .{err});
+                            fns.println("Fatal server error: {t}", .{err});
                             return err;
                         },
                         else => {
-                            funcs.println("Error connecting to client: {t}",
+                            fns.println("Error connecting to client: {t}",
                                           .{err});
                             continue;
                         },
@@ -99,15 +104,15 @@ fn startSleep(self: *Self, select: *Selector) void {
 
 fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
     const peer_addr = peerAddress(stream) catch null;
-    funcs.println("Client at {f} connected.", .{Fmt(peer_addr)});
+    fns.println("Client at {f} connected.", .{Fmt(peer_addr)});
 
     self.handleStream(arena, stream) catch |raw_err| {
         const err = handleError(raw_err);
-        funcs.println("Dropping client at {f} due to {t}.",
+        fns.println("Dropping client at {f} due to {t}.",
                       .{Fmt(peer_addr), err});
         return;
     };
-    funcs.println("Client at {f} disconnected.", .{Fmt(peer_addr)});
+    fns.println("Client at {f} disconnected.", .{Fmt(peer_addr)});
 }
 
 fn handleStream(self: *Self, arena: Allocator, stream: *Stream) !void {
@@ -125,9 +130,9 @@ fn handleStream(self: *Self, arena: Allocator, stream: *Stream) !void {
 
 fn shakeHands(in: *Reader, out: *Writer) !void {
     send_recv.recvOpenDoor(in) catch |err| return switch (err) {
-        ty.Err.BadArgument => out: {
+        Err.BadArgument => out: {
             try send_recv.sendNotWelcome(out);
-            break :out ty.Err.BadArgument;
+            break :out Err.BadArgument;
         },
         else => err,
     };
@@ -145,8 +150,7 @@ fn handleRequest(self: *Self, arena: Allocator,
     return true;
 }
 
-fn processRequest(self: *Self, arena: Allocator, request: ty.Request)
-        ?ty.Response {
+fn processRequest(self: *Self, arena: Allocator, request: Request) ?Response {
     return switch (request) {
         .call => |call|
             if (self.processCallRequest(arena, call))
@@ -156,8 +160,8 @@ fn processRequest(self: *Self, arena: Allocator, request: ty.Request)
     };
 }
 
-fn processCallRequest(self: *Self, arena: Allocator, call: ty.Request.Call)
-        !ty.Response.Call {
+fn processCallRequest(self: *Self, arena: Allocator, call: Request.Call)
+        !Response.Call {
     return switch (call) {
         .store_list => .{.store_list =
             try self.inner.storeList(arena)},
@@ -166,7 +170,7 @@ fn processCallRequest(self: *Self, arena: Allocator, call: ty.Request.Call)
         .store_destroy => |store_id| .{.store_destroy =
             try self.inner.storeDestroy(store_id)},
         .blob_hash => |blob| .{.blob_hash =
-            try funcs.hashBlob(arena, blob)},
+            try blob.hash(arena)},
         .blob_list => |store_id| .{.blob_list =
             try self.inner.blobList(arena, store_id)},
         .blob_info => |args| .{.blob_info =
@@ -180,12 +184,12 @@ fn processCallRequest(self: *Self, arena: Allocator, call: ty.Request.Call)
     };
 }
 
-fn handleError(err: anytype) ty.Err {
+fn handleError(err: anytype) Err {
     return switch (err) {
-        ty.Err.NotFound, ty.Err.Exists, ty.Err.BadArgument, ty.Err.Internal =>
+        Err.NotFound, Err.Exists, Err.BadArgument, Err.Internal =>
             |err_| err_,
         else => unexpected: {
-            funcs.println("handleError: Unexpected internal error: {t}", .{err});
+            fns.println("handleError: Unexpected internal error: {t}", .{err});
             if (@errorReturnTrace()) |trace| {
                 const size = @min(trace.index, trace.instruction_addresses.len);
                 std.debug.dumpStackTrace(&.{
@@ -193,7 +197,7 @@ fn handleError(err: anytype) ty.Err {
                     .skipped = .none,
                 });
             }
-            break :unexpected ty.Err.Internal;
+            break :unexpected Err.Internal;
         }
     };
 }
