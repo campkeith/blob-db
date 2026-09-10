@@ -10,7 +10,7 @@ const StoreId = ty.StoreId;
 
 const fns = @import("blob-db/functions.zig");
 const trash = @import("blob-db/trash.zig");
-const struct_ = @import("blob-db/struct_.zig");
+const record = @import("blob-db/record.zig");
 const Blob = @import("blob-db/Blob.zig");
 const Client = @import("blob-db/Client.zig");
 
@@ -97,13 +97,13 @@ fn HasherFromKeyFunc(Key: type, keyFunc: fn(*const Key) []const u8) type {
     };
 }
 
-const TestFunc = *const fn (*TestRig, Allocator) anyerror!void;
+const testFunc = *const fn (*TestRig, Allocator) anyerror!void;
 
 fn go(rig: *TestRig, iterations: u64) !void {
     const Weight = f32;
 
     const FuncWeightPair = struct {
-        func: TestFunc,
+        func: testFunc,
         weight: Weight,
         const init = record.init(@This());
     };
@@ -129,7 +129,7 @@ fn go(rig: *TestRig, iterations: u64) !void {
     }
 }
 
-fn testFuncArena(func: TestFunc, rig: *TestRig) anyerror!void {
+fn testFuncArena(func: testFunc, rig: *TestRig) anyerror!void {
     var arena = std.heap.ArenaAllocator.init(rig.arena);
     defer arena.deinit();
     try func(rig, arena.allocator());

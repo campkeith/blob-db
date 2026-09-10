@@ -98,7 +98,7 @@ fn blobList_(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
                           .{entry.kind, entry.name});
             continue;
         }
-        const blob_id = try nameToBlobId(entry.name);
+        const blob_id = try Blob.parseId(entry.name);
         try list.append(arena, blob_id);
     }
     return try list.toOwnedSlice(arena);
@@ -108,7 +108,7 @@ pub const blobInfo = log.call(Self, "blob_info", blobInfo_);
 fn blobInfo_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
-    const blob_id_str = Blob.idToStr(blob_id);
+    const blob_id_str = Blob.formatId(blob_id);
     const opts: Dir.StatFileOptions = .{
         .follow_symlinks = false,
     };
@@ -124,7 +124,7 @@ pub const blobLoad = log.call(Self, "blob_load", blobLoad_);
 fn blobLoad_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
-    const blob_id_str = Blob.idToStr(blob_id);
+    const blob_id_str = Blob.formatId(blob_id);
     const opts: Dir.OpenFileOptions = .{
         .allow_directory = false
     };
@@ -167,7 +167,7 @@ fn blobSave_(self: *Self, store_id: StoreId, blob: Blob)
     defer blob_out.destroy(self.io);
 
     const blob_id = try blob.hashCopy(blob_out.memory);
-    const blob_id_str = Blob.idToStr(blob_id);
+    const blob_id_str = Blob.formatId(blob_id);
     store_dir.renamePreserve(&temp_filename, store_dir, &blob_id_str, self.io)
         catch |err| return switch (err) {
             error.PathAlreadyExists => out: {
@@ -184,7 +184,7 @@ fn blobDelete_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !void {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
 
-    const blob_id_str = Blob.idToStr(blob_id);
+    const blob_id_str = Blob.formatId(blob_id);
     store_dir.deleteFile(self.io, &blob_id_str)
         catch |err| return switch (err) {
             error.FileNotFound => Err.NotFound,
@@ -200,14 +200,6 @@ fn openStoreDir(self: *Self, store_id: StoreId) !Dir {
             error.FileNotFound => Err.NotFound,
             else => err,
         };
-}
-
-fn nameToBlobId(name: []const u8) !Blob.Id {
-    if (name.len != 64) {
-        fns.println("nameToBlobId: invalid length name: \"{s}\"\n", .{name});
-        return Err.Internal;
-    }
-    return Blob.strToId(std.mem.bytesToValue(Blob.IdStr, name));
 }
 
 fn tempName(self: *Self) TempName {

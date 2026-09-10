@@ -26,8 +26,8 @@ const Self = @This();
 
 const Selector = Io.Select(AcceptSleepResult);
 const AcceptSleepResult = union(enum) {
-    accept: fns.returnType(@TypeOf(Server.accept)),
-    sleep: fns.returnType(@TypeOf(Io.sleep)),
+    accept: fns.ReturnType(@TypeOf(Server.accept)),
+    sleep: fns.ReturnType(@TypeOf(Io.sleep)),
 };
 
 io: Io,
@@ -115,11 +115,11 @@ fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
 }
 
 fn handleStream(self: *Self, arena: Allocator, stream: *Stream) !void {
-    const BUF_SIZE = 4096;
-    const read_buf = try arena.alloc(u8, BUF_SIZE);
+    const buf_size = 4096;
+    const read_buf = try arena.alloc(u8, buf_size);
     defer arena.free(read_buf);
     var in = stream.reader(self.io, read_buf);
-    const write_buf = try arena.alloc(u8, BUF_SIZE);
+    const write_buf = try arena.alloc(u8, buf_size);
     defer arena.free(write_buf);
     var out = stream.writer(self.io, write_buf);
 

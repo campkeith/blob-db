@@ -155,7 +155,7 @@ pub fn hashMemory(memory: []const u8) Id {
     return id;
 }
 
-pub fn idToStr(id: Id) IdStr {
+pub fn formatId(id: Id) IdStr {
     return std.mem.toBytes(fns.map(id, byteToHexPair));
 }
 
@@ -171,9 +171,13 @@ fn nibbleToHex(nibble: u4) u8 {
     };
 }
 
-pub fn strToId(string: IdStr) !Id {
-    const HexPairs = [string.len / 2][2]u8;
-    return fns.map(std.mem.bytesToValue(HexPairs, &string), hexPairToByte);
+pub fn parseId(id_str: []const u8) !Id {
+    if (id_str.len != @typeInfo(IdStr).array.len) {
+        fns.println("Blob.parseId: invalid length id: \"{s}\"\n", .{id_str});
+        return Err.Internal;
+    }
+    const HexPairs = [@typeInfo(Id).array.len][2]u8;
+    return fns.map(std.mem.bytesToValue(HexPairs, id_str), hexPairToByte);
 }
 
 fn hexPairToByte(hex_pair: [2]u8) !u8 {

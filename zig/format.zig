@@ -27,7 +27,7 @@ fn obj(obj_in: anytype, out: *Writer) !void {
         try obj_in.format(out);
     } else try switch (Obj) {
         []const u8 => out.print("\"{s}\"", .{obj_in}),
-        Blob.Id => out.print("{s}", .{Blob.idToStr(obj_in)}),
+        Blob.Id => out.print("{s}", .{Blob.formatId(obj_in)}),
         ?IpAddress => ipAddress(obj_in, out),
         std.mem.Allocator => struct_(obj_in, out),
         else => switch (@typeInfo(Obj)) {

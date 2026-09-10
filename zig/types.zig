@@ -108,6 +108,7 @@ pub const Err = error {
 pub const StoreId = struct {
     id: []const u8,
 
+    // TODO: Add checks to restrict (at least) to valid filenames
     pub const init = record.init(@This());
 
     pub fn create(arena: Allocator, id_in: []const u8) !StoreId {

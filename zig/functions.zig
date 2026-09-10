@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const Random = std.Random;
 const Allocator = std.mem.Allocator;
 
@@ -34,11 +35,11 @@ pub fn pairGen(A: type, B: type) type {
 }
 
 pub fn map(array_in: anytype, func: anytype)
-        MapReturn(array_in.len, returnType(@TypeOf(func))) {
+        MapReturn(array_in.len, ReturnType(@TypeOf(func))) {
     const ElemOut = returnTypeSansErr(@TypeOf(func));
     var array_out: [array_in.len]ElemOut = undefined;
     inline for (array_in, &array_out) |elem_in, *elem_out| {
-        elem_out.* = if (@typeInfo(returnType(@TypeOf(func))) == .error_union)
+        elem_out.* = if (@typeInfo(ReturnType(@TypeOf(func))) == .error_union)
                      try func(elem_in) else func(elem_in);
     }
     return array_out;
@@ -65,14 +66,14 @@ pub fn argType(param: std.builtin.Type.Fn.Param) type {
 }
 
 pub fn returnTypeSansErr(Func: type) type {
-    const Return = returnType(Func);
+    const Return = ReturnType(Func);
     return switch (@typeInfo(Return)) {
         .error_union => |union_| union_.payload,
         else => Return,
     };
 }
 
-pub fn returnType(Func: type) type {
+pub fn ReturnType(Func: type) type {
     return @typeInfo(Func).@"fn".return_type.?;
 }
 
@@ -90,13 +91,13 @@ pub fn randomName(rng: Random, name_out: []u8) void {
     }
 }
 
-fn peerAddress(stream: *std.net.Stream) !std.net.IpAddress {
-    const sockaddr = std.posix.sockaddr;
-    var addr_buf: sockaddr.storage = undefined;
-    var size: std.posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
-    const address: *sockaddr = @ptrCast(&addr_buf);
+pub fn peerAddress(stream: *Io.net.Stream) !Io.net.IpAddress {
+    const posix = std.posix;
+    var addr_buf: posix.sockaddr.storage = undefined;
+    var size: posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
+    const address: *posix.sockaddr = @ptrCast(&addr_buf);
     try std.posix.getpeername(stream.socket.handle, address, &size);
-    return std.Io.Threaded.addressFromPosix(&.{.any = address.*});
+    return Io.Threaded.addressFromPosix(&.{.any = address.*});
 }
 
 pub fn encode8(comptime bytes: *const[8]u8) u64 {

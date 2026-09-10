@@ -9,6 +9,7 @@ pub fn init(Obj: type) Return: {
         0 => fn() Obj,
         1 => fn(types[0]) Obj,
         2 => fn(types[0], types[1]) Obj,
+        3 => fn(types[0], types[1], types[2]) Obj,
         else => unreachable,
     };
 } {
@@ -27,6 +28,11 @@ pub fn init(Obj: type) Return: {
         2 => struct {
             fn inner(a: types[0], b: types[1]) Obj {
                 return makeStruct(Obj, .{a, b});
+            }
+        }.inner,
+        3 => struct {
+            fn inner(a: types[0], b: types[1], c: types[2]) Obj {
+                return makeStruct(Obj, .{a, b, c});
             }
         }.inner,
         else => unreachable,

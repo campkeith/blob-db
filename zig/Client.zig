@@ -26,17 +26,18 @@ write_buf: []u8,
 
 pub const connect = log.call(Self, "connect", connect_);
 fn connect_(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
+
     const buf_size = 16 * 1024;
 
     const address = try IpAddress.parseLiteral(address_str);
     const stream = try address.connect(io, .{.mode = .stream});
     errdefer stream.close(io);
 
-    const read_buf = try arena.alloc(u8, BUF_SIZE);
+    const read_buf = try arena.alloc(u8, buf_size);
     errdefer arena.free(read_buf);
     const in = stream.reader(io, read_buf);
 
-    const write_buf = try arena.alloc(u8, BUF_SIZE);
+    const write_buf = try arena.alloc(u8, buf_size);
     errdefer arena.free(write_buf);
     const out = stream.writer(io, write_buf);
 

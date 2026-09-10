@@ -67,9 +67,8 @@ inline fn isHashMap(Obj: type) bool {
         const Unmanaged = @FieldType(Obj, "unmanaged");
         break :unmanaged @hasDecl(Unmanaged, "putContext") and check: {
             const Func = @typeInfo(@TypeOf(Unmanaged.putContext)).@"fn";
-            const Args = Func.params;
-            const Key, const Val, const Hasher
-                = .{Args[2].type.?, Args[3].type.?, Args[4].type.?};
+            const Args = fns.map(Func.params[0..5], fns.argType);
+            _, _, const Key, const Val, const Hasher = Args;
             const max_load = std.hash_map.default_max_load_percentage;
             break :check std.HashMap(Key, Val, Hasher, max_load) == Obj;
         };

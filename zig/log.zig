@@ -44,7 +44,7 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
 }
 
 fn argsCallRet(comptime func: anytype, args: anytype, name: []const u8)
-        fns.returnType(@TypeOf(func)) {
+        fns.ReturnType(@TypeOf(func)) {
     fns.println("{s}{f}:", .{name, Fmt(args)});
     const result = @call(.auto, func, args);
     fns.println("{s} -> {f}", .{name, Fmt(result)});
