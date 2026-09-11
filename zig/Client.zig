@@ -24,9 +24,9 @@ out: std.Io.net.Stream.Writer,
 read_buf: []u8,
 write_buf: []u8,
 
-pub const connect = log.call(Self, "connect", connectInner);
-fn connectInner(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
-    const BUF_SIZE = 4096;
+pub const connect = log.call(Self, "connect", connect_);
+fn connect_(io: std.Io, arena: Allocator, address_str: []const u8) !Self {
+    const buf_size = 16 * 1024;
 
     const address = try IpAddress.parseLiteral(address_str);
     const stream = try address.connect(io, .{.mode = .stream});
@@ -57,8 +57,8 @@ fn shakeHands(self: *Self) !void {
     try send_recv.recvWelcome(&self.in.interface);
 }
 
-pub const close = log.call(Self, "close", closeInner);
-fn closeInner(self: *Self, arena: Allocator) void {
+pub const close = log.call(Self, "close", close_);
+fn close_(self: *Self, arena: Allocator) void {
     send_recv.sendRequest(&self.out.interface, .bye) catch |err| {
         fns.println("Client.close: failed to send 'bye' due to {t}.", .{err});
     };
@@ -71,50 +71,50 @@ pub fn format(self: Self, out: *std.Io.Writer) !void {
     return fmt.structOpaque(self, out);
 }
 
-pub const storeList = log.call(Self, "store_list", storeListInner);
-fn storeListInner(self: *Self, arena: Allocator) ![]StoreId {
+pub const storeList = log.call(Self, "store_list", storeList_);
+fn storeList_(self: *Self, arena: Allocator) ![]StoreId {
     return try self.remoteCall(arena, .store_list, {});
 }
 
-pub const storeCreate = log.call(Self, "store_create", storeCreateInner);
-fn storeCreateInner(self: *Self, store_id: StoreId) !void {
+pub const storeCreate = log.call(Self, "store_create", storeCreate_);
+fn storeCreate_(self: *Self, store_id: StoreId) !void {
     return try self.remoteCall(null, .store_create, store_id);
 }
 
-pub const storeDestroy = log.call(Self, "store_destroy", storeDestroyInner);
-fn storeDestroyInner(self: *Self, store_id: StoreId) !void {
+pub const storeDestroy = log.call(Self, "store_destroy", storeDestroy_);
+fn storeDestroy_(self: *Self, store_id: StoreId) !void {
     return try self.remoteCall(null, .store_destroy, store_id);
 }
 
-pub const blobHash = log.call(Self, "blob_hash", blobHashInner);
-fn blobHashInner(self: *Self, blob: Blob) !Blob.Id {
+pub const blobHash = log.call(Self, "blob_hash", blobHash_);
+fn blobHash_(self: *Self, blob: Blob) !Blob.Id {
     return try self.remoteCall(null, .blob_hash, blob);
 }
 
-pub const blobList = log.call(Self, "blob_list", blobListInner);
-fn blobListInner(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
+pub const blobList = log.call(Self, "blob_list", blobList_);
+fn blobList_(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
     return try self.remoteCall(arena, .blob_list, store_id);
 }
 
-pub const blobInfo = log.call(Self, "blob_info", blobInfoInner);
-fn blobInfoInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
+pub const blobInfo = log.call(Self, "blob_info", blobInfo_);
+fn blobInfo_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
     return try self.remoteCall(null, .blob_info, .init(store_id, blob_id));
 }
 
-pub const blobLoad = log.call(Self, "blob_load", blobLoadInner);
-fn blobLoadInner(self: *Self, arena: Allocator,
+pub const blobLoad = log.call(Self, "blob_load", blobLoad_);
+fn blobLoad_(self: *Self, arena: Allocator,
                  store_id: StoreId, blob_id: Blob.Id) !Blob {
     return try self.remoteCall(arena, .blob_load, .init(store_id, blob_id));
 }
 
-pub const blobSave = log.call(Self, "blob_save", blobSaveInner);
-fn blobSaveInner(self: *Self, store_id: StoreId, blob: Blob)
+pub const blobSave = log.call(Self, "blob_save", blobSave_);
+fn blobSave_(self: *Self, store_id: StoreId, blob: Blob)
         !Response.SaveStatusBlobId  {
     return try self.remoteCall(null, .blob_save, .init(store_id, blob));
 }
 
-pub const blobDelete = log.call(Self, "blob_delete", blobDeleteInner);
-fn blobDeleteInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !void {
+pub const blobDelete = log.call(Self, "blob_delete", blobDelete_);
+fn blobDelete_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !void {
     return try self.remoteCall(null, .blob_delete, .init(store_id, blob_id));
 }
 

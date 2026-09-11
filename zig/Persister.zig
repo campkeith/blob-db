@@ -21,8 +21,8 @@ io: std.Io,
 base_dir: Dir,
 rng: std.Random.DefaultPrng,
 
-pub const create = log.call(Self, "create", createInner);
-fn createInner(init: std.process.Init) !Self {
+pub const create = log.call(Self, "create", create_);
+fn create_(init: std.process.Init) !Self {
     const base_dir_str = try fns.getEnv(init.environ_map, "BASE_DIR");
     const opts: Dir.OpenOptions = .{
         .iterate = true,
@@ -37,8 +37,8 @@ fn createInner(init: std.process.Init) !Self {
     };
 }
 
-pub const destroy = log.call(Self, "destroy", destroyInner);
-fn destroyInner(self: *Self) void {
+pub const destroy = log.call(Self, "destroy", destroy_);
+fn destroy_(self: *Self) void {
     self.base_dir.close(self.io);
 }
 
@@ -46,8 +46,8 @@ pub fn format(self: Self, out: *std.Io.Writer) !void {
     return fmt.structOpaque(self, out);
 }
 
-pub const storeList = log.call(Self, "store_list", storeListInner);
-fn storeListInner(self: *Self, arena: Allocator) ![]StoreId {
+pub const storeList = log.call(Self, "store_list", storeList_);
+fn storeList_(self: *Self, arena: Allocator) ![]StoreId {
     var list: std.ArrayList(StoreId) = .empty;
     errdefer trash.recycleArrayList(&list, arena);
     var iterator = self.base_dir.iterate();
@@ -64,8 +64,8 @@ fn storeListInner(self: *Self, arena: Allocator) ![]StoreId {
     return try list.toOwnedSlice(arena);
 }
 
-pub const storeCreate = log.call(Self, "storeCreate", storeCreateInner);
-fn storeCreateInner(self: *Self, store_id: StoreId) !void {
+pub const storeCreate = log.call(Self, "storeCreate", storeCreate_);
+fn storeCreate_(self: *Self, store_id: StoreId) !void {
     self.base_dir.createDir(self.io, store_id.id, .default_dir)
         catch |err| return switch (err) {
             error.PathAlreadyExists => Err.Exists,
@@ -74,8 +74,8 @@ fn storeCreateInner(self: *Self, store_id: StoreId) !void {
         };
 }
 
-pub const storeDestroy = log.call(Self, "storeDestroy", storeDestroyInner);
-fn storeDestroyInner(self: *Self, store_id: StoreId) !void {
+pub const storeDestroy = log.call(Self, "storeDestroy", storeDestroy_);
+fn storeDestroy_(self: *Self, store_id: StoreId) !void {
     const temp_dirname = self.tempName();
     self.base_dir.rename(store_id.id, self.base_dir, &temp_dirname, self.io)
         catch |err| return switch (err) {
@@ -85,8 +85,8 @@ fn storeDestroyInner(self: *Self, store_id: StoreId) !void {
     try self.base_dir.deleteTree(self.io, &temp_dirname);
 }
 
-pub const blobList = log.call(Self, "blob_list", blobListInner);
-fn blobListInner(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
+pub const blobList = log.call(Self, "blob_list", blobList_);
+fn blobList_(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
     var list: std.ArrayList(Blob.Id) = .empty;
     errdefer list.deinit(arena);
     var store_dir = try self.openStoreDir(store_id);
@@ -104,8 +104,8 @@ fn blobListInner(self: *Self, arena: Allocator, store_id: StoreId) ![]Blob.Id {
     return try list.toOwnedSlice(arena);
 }
 
-pub const blobInfo = log.call(Self, "blob_info", blobInfoInner);
-fn blobInfoInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
+pub const blobInfo = log.call(Self, "blob_info", blobInfo_);
+fn blobInfo_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = Blob.idToStr(blob_id);
@@ -120,8 +120,8 @@ fn blobInfoInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob.Size {
     return stat.size;
 }
 
-pub const blobLoad = log.call(Self, "blob_load", blobLoadInner);
-fn blobLoadInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob {
+pub const blobLoad = log.call(Self, "blob_load", blobLoad_);
+fn blobLoad_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
     const blob_id_str = Blob.idToStr(blob_id);
@@ -137,8 +137,8 @@ fn blobLoadInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !Blob {
     return Blob.initFile(file, self.io);
 }
 
-pub const blobSave = log.call(Self, "blob_save", blobSaveInner);
-fn blobSaveInner(self: *Self, store_id: StoreId, blob: Blob)
+pub const blobSave = log.call(Self, "blob_save", blobSave_);
+fn blobSave_(self: *Self, store_id: StoreId, blob: Blob)
         !Response.SaveStatusBlobId {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
@@ -179,8 +179,8 @@ fn blobSaveInner(self: *Self, store_id: StoreId, blob: Blob)
     return .init(.created, blob_id);
 }
 
-pub const blobDelete = log.call(Self, "blob_delete", blobDeleteInner);
-fn blobDeleteInner(self: *Self, store_id: StoreId, blob_id: Blob.Id) !void {
+pub const blobDelete = log.call(Self, "blob_delete", blobDelete_);
+fn blobDelete_(self: *Self, store_id: StoreId, blob_id: Blob.Id) !void {
     var store_dir = try self.openStoreDir(store_id);
     defer store_dir.close(self.io);
 
