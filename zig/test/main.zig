@@ -105,7 +105,7 @@ fn go(rig: *TestRig, iterations: u64) !void {
     const FuncWeightPair = struct {
         func: TestFunc,
         weight: Weight,
-        const init = struct_.init(@This());
+        const init = record.init(@This());
     };
     const ops = [_]FuncWeightPair{
         .init(testStoreList, 0.2),

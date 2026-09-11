@@ -10,7 +10,7 @@ const ty = @import("types.zig");
 const Err = ty.Err;
 
 const fns = @import("functions.zig");
-const struct_ = @import("struct_.zig");
+const record = @import("record.zig");
 
 pub const Id = [32]u8;
 pub const IdStr = [64]u8;
@@ -54,7 +54,7 @@ pub const File = struct {
     }
 };
 
-const init = struct_.init(Self);
+const init = record.init(Self);
 
 pub fn initStream(arena: Allocator, reader: *Reader, size_: usize) !Self {
     const stream = try arena.create(Stream);

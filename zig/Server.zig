@@ -1,6 +1,5 @@
 const std = @import("std");
 const Io = std.Io;
-const sockaddr = std.posix.sockaddr;
 const IpAddress = std.Io.net.IpAddress;
 const Server = std.Io.net.Server;
 const Stream = std.Io.net.Stream;
@@ -103,7 +102,7 @@ fn startSleep(self: *Self, select: *Selector) void {
 }
 
 fn clientSession(self: *Self, arena: Allocator, stream: *Stream) void {
-    const peer_addr = peerAddress(stream) catch null;
+    const peer_addr = fns.peerAddress(stream) catch null;
     fns.println("Client at {f} connected.", .{Fmt(peer_addr)});
 
     self.handleStream(arena, stream) catch |raw_err| {
@@ -200,12 +199,4 @@ fn handleError(err: anytype) Err {
             break :unexpected Err.Internal;
         }
     };
-}
-
-fn peerAddress(stream: *Stream) !IpAddress {
-    var addr_buf: sockaddr.storage = undefined;
-    var size: std.posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
-    const address: *sockaddr = @ptrCast(&addr_buf);
-    try std.posix.getpeername(stream.socket.handle, address, &size);
-    return Io.Threaded.addressFromPosix(&.{.any = address.*});
 }

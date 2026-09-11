@@ -1,12 +1,11 @@
 const std = @import("std");
 const Random = std.Random;
-const Environ = std.process.Environ;
 const Allocator = std.mem.Allocator;
 
 const ty = @import("types.zig");
 const Err = ty.Err;
 
-pub fn getEnv(env: *Environ.Map, name: []const u8) ![]const u8 {
+pub fn getEnv(env: *std.process.Environ.Map, name: []const u8) ![]const u8 {
     return env.get(name) orelse err: {
         println("Missing required environment variable: {s}", .{name});
         break :err Err.Internal;
@@ -89,6 +88,15 @@ pub fn randomName(rng: Random, name_out: []u8) void {
         const index = rng.uintLessThan(usize, alphabet.len);
         char.* = alphabet[index];
     }
+}
+
+fn peerAddress(stream: *std.net.Stream) !std.net.IpAddress {
+    const sockaddr = std.posix.sockaddr;
+    var addr_buf: sockaddr.storage = undefined;
+    var size: std.posix.socklen_t = @sizeOf(@TypeOf(addr_buf));
+    const address: *sockaddr = @ptrCast(&addr_buf);
+    try std.posix.getpeername(stream.socket.handle, address, &size);
+    return std.Io.Threaded.addressFromPosix(&.{.any = address.*});
 }
 
 pub fn encode8(comptime bytes: *const[8]u8) u64 {

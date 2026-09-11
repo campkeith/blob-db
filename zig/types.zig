@@ -9,7 +9,7 @@ const fns = @import("functions.zig");
 const encode8 = fns.encode8;
 
 const Blob = @import("Blob.zig");
-const struct_ = @import("struct_.zig");
+const record = @import("record.zig");
 
 pub const Code = u64;
 
@@ -47,14 +47,14 @@ pub const Request = union(enum) {
         store_id: StoreId,
         blob_id: Blob.Id,
 
-        pub const init = struct_.init(@This());
+        pub const init = record.init(@This());
     };
 
     pub const StoreIdBlob = struct {
         store_id: StoreId,
         blob: Blob,
 
-        pub const init = struct_.init(@This());
+        pub const init = record.init(@This());
     };
 };
 
@@ -84,7 +84,7 @@ pub const Response = union(enum) {
         status: SaveStatus,
         blob_id: Blob.Id,
 
-        pub const init = struct_.init(@This());
+        pub const init = record.init(@This());
 
         pub fn format(self: SaveStatusBlobId, writer: *Writer) !void {
             try writer.print("{{{t}, {f}}}", .{self.status, Fmt(self.blob_id)});
@@ -108,7 +108,7 @@ pub const Err = error {
 pub const StoreId = struct {
     id: []const u8,
 
-    pub const init = struct_.init(@This());
+    pub const init = record.init(@This());
 
     pub fn create(arena: Allocator, id_in: []const u8) !StoreId {
         const id = try arena.dupe(u8, id_in);
