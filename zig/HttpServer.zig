@@ -1,8 +1,10 @@
 const std = @import("std");
 const Io = std.Io;
+const http = std.http;
 const Server = std.http.Server;
 const Method = std.http.Method;
 const Request = std.http.Server.Request;
+const json = std.json;
 const Stream = std.Io.net.Stream;
 const IpAddress = std.Io.net.IpAddress;
 const Allocator = std.mem.Allocator;
@@ -13,6 +15,7 @@ const Fmt = fmt.Fmt;
 const ty = @import("types.zig");
 const Err = ty.Err;
 const StoreId = ty.StoreId;
+const SaveStatus = ty.Response.SaveStatus;
 
 const fns = @import("functions.zig");
 const Blob = @import("Blob.zig");
@@ -90,7 +93,7 @@ pub fn handleStream(self: *Self, arena: Allocator, stream: *Stream) !void {
             else => return err,
         };
         // Ignore upgrade request
-        try self.handleRequest(&request);
+        try self.handleRequest(arena, &request);
     }
 }
 
@@ -102,7 +105,8 @@ const Route = struct {
     const init = record.init(@This());
 };
 
-fn handleRequest(self: *Self, request: *Request) !void {
+fn handleRequest(self: *Self, arena: Allocator, request: *Request) !void {
+    // IDEA: Map to a comptime-built union instead of functions
     const routes = comptime [_]Route {
         .init(.GET, "/stores", "storeList"),
         .init(.PUT, "/stores/:parseStoreId", "storeCreate"),
@@ -117,7 +121,8 @@ fn handleRequest(self: *Self, request: *Request) !void {
     inline for (routes) |route| {
         if (matchHead(request.head, route)) |args| {
             const handlerFunc = @field(@This(), route.handler);
-            try @call(.auto, handlerFunc, .{self, request} ++ args);
+            // TODO: Add error handler that translates to http status codes
+            try @call(.auto, handlerFunc, .{self, arena, request} ++ args);
             break;
         }
     } else return Err.NotFound;
@@ -169,52 +174,151 @@ fn parseBlobId(in: []const u8) ?Blob.Id {
     return Blob.parseId(in) catch null;
 }
 
-fn storeList(self: *Self, request: *Request) !void {
-    _, _ = .{self, request};
-    return Err.Internal;
+fn storeList(self: *Self, arena: Allocator, request: *Request) !void {
+    try reqBodyCheckEmpty(request);
+    const store_ids = try self.inner.storeList(arena);
+    try respondJson(request, .ok, store_ids);
 }
 
-fn storeCreate(self: *Self, request: *Request, store_id: StoreId) !void {
-    _, _, _ = .{self, request, store_id};
-    return Err.Internal;
+fn storeCreate(self: *Self, _: Allocator, request: *Request,
+               store_id: StoreId) !void {
+    try reqBodyCheckEmpty(request);
+    try self.inner.storeCreate(store_id);
+    try respondStatus(request, .no_content);
 }
 
-fn storeDestroy(self: *Self, request: *Request, store_id: StoreId) !void {
-    _, _, _ = .{self, request, store_id};
-    return Err.Internal;
+fn storeDestroy(self: *Self, _: Allocator, request: *Request,
+                store_id: StoreId) !void {
+    try reqBodyCheckEmpty(request);
+    try self.inner.storeDestroy(store_id);
+    try respondStatus(request, .no_content);
 }
 
-fn blobHash(self: *Self, request: *Request) !void {
-    _, _ = .{self, request};
-    return Err.Internal;
+fn blobHash(_: *Self, arena: Allocator, request: *Request) !void {
+    const blob = try reqBodyBlob(request, arena);
+    const blob_id = try blob.hash(arena);
+    try respondJson(request, .ok, blob_id);
 }
 
-fn blobList(self: *Self, request: *Request, store_id: StoreId) !void {
-    _, _, _ = .{self, request, store_id};
-    return Err.Internal;
+fn blobList(self: *Self, arena: Allocator, request: *Request,
+            store_id: StoreId) !void {
+    try reqBodyCheckEmpty(request);
+    const blob_ids = try self.inner.blobList(arena, store_id);
+    try respondJson(request, .ok, blob_ids);
 }
 
-fn blobInfo(self: *Self, request: *Request, store_id: StoreId, blob_id: Blob.Id)
-        !void {
-    _, _, _, _ = .{self, request, store_id, blob_id};
-    return Err.Internal;
+fn blobInfo(self: *Self, _: Allocator, request: *Request,
+            store_id: StoreId, blob_id: Blob.Id) !void {
+    try reqBodyCheckEmpty(request);
+    const blob_size = try self.inner.blobInfo(store_id, blob_id);
+    try respondBlobHead(request, blob_size);
 }
 
-fn blobLoad(self: *Self, request: *Request, store_id: StoreId, blob_id: Blob.Id)
-        !void {
-    _, _, _, _ = .{self, request, store_id, blob_id};
-    return Err.Internal;
+fn blobLoad(self: *Self, _: Allocator, request: *Request,
+            store_id: StoreId, blob_id: Blob.Id) !void {
+    try reqBodyCheckEmpty(request);
+    const blob = try self.inner.blobLoad(store_id, blob_id);
+    try respondBlob(request, blob);
 }
 
-fn blobSave(self: *Self, request: *Request, store_id: StoreId) !void {
-    _, _, _ = .{self, request, store_id};
-    return Err.Internal;
+fn blobSave(self: *Self, arena: Allocator, request: *Request,
+            store_id: StoreId) !void {
+    const blob = try reqBodyBlob(request, arena);
+    const result = try self.inner.blobSave(store_id, blob);
+    // TODO: add location header
+    try respondJson(request, saveToHttpStatus(result.status), result);
 }
 
-fn blobDelete(self: *Self, request: *Request, store_id: StoreId, blob_id: Blob.Id)
-        !void {
-    _, _, _, _ = .{self, request, store_id, blob_id};
-    return Err.Internal;
+fn blobDelete(self: *Self, _: Allocator, request: *Request,
+              store_id: StoreId, blob_id: Blob.Id) !void {
+    try reqBodyCheckEmpty(request);
+    try self.inner.blobDelete(store_id, blob_id);
+    try respondStatus(request, .no_content);
+}
+
+fn saveToHttpStatus(status: SaveStatus) http.Status {
+    return switch (status) {
+        .created => .created,
+        .exists => .conflict,
+    };
+}
+
+fn reqBodyCheckEmpty(request: *Request) !void {
+    // TODO: Determine how best to handle this in practice
+    const reader = request.readerExpectNone(&.{});
+    _ = try reader.discard(.nothing);
+}
+
+fn reqBodyBlob(request: *Request, arena: Allocator) !Blob {
+    const reader = request.readerExpectNone(&.{});
+    const size = request.head.content_length orelse return Err.BadArgument;
+    return .initStream(arena, reader, size);
+}
+
+fn respondStatus(request: *Request, status: http.Status) !void {
+    var writer = try respBodyWriter(request, status, null, null);
+    try writer.end();
+}
+
+fn respondJson(request: *Request, status: http.Status, val: anytype) !void {
+    var writer = try respBodyWriter(request, status, "application/json", null);
+    var stringify = json.Stringify {
+        .writer = &writer.writer,
+        .options = .{.whitespace = .indent_tab},
+    };
+    try stringify.write(val);
+    // There does not appear to be an option to add a trailing newline...
+    try writer.writer.writeAll("\n");
+    try writer.end();
+}
+
+fn respondBlobHead(request: *Request, size: Blob.Size) !void {
+    var writer = try respBodyBlobWriter(request, size);
+    try writer.writer.splatByteAll(0, size);
+    try writer.end();
+}
+
+fn respondBlob(request: *Request, blob: Blob) !void {
+    const size = try blob.size();
+    var writer = try respBodyBlobWriter(request, size);
+    switch (blob.core) {
+        .file => |file| {
+            var reader = file.file.reader(file.io, &.{});
+            const bytes_sent = try writer.writer.sendFileAll(&reader, .limited(size));
+            if (bytes_sent != size) return Err.Internal;
+        },
+        else => {
+            fns.println("respondBlob: Unhandled blob type: {t}.",
+                        .{std.meta.activeTag(blob.core)});
+            return Err.Internal;
+        }
+    }
+    try writer.end();
+}
+
+fn respBodyWriter(request: *Request, status: http.Status,
+                  content_type: ?[]const u8, content_length: ?u64)
+        !http.BodyWriter {
+    const head = Request.RespondStreamingOptions {
+        .content_length = content_length,
+        .respond_options = .{
+            .status = status,
+            .extra_headers = if (content_type) |type_| &.{
+                headerInit("content-type", type_),
+            } else &.{},
+            .transfer_encoding = if (content_type == null) .none else null,
+        },
+    };
+    // FIXME: Hack
+    return try request.respondStreaming(request.server.reader.in.buffer, head);
+}
+
+fn respBodyBlobWriter(request: *Request, size: Blob.Size) !http.BodyWriter {
+    return respBodyWriter(request, .ok, "application/octet-stream", size);
+}
+
+fn headerInit(name: []const u8, value: []const u8) http.Header {
+    return .{.name = name, .value = value};
 }
 
 pub fn main(init: std.process.Init) !void {

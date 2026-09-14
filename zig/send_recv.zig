@@ -101,7 +101,7 @@ fn send(out: *Writer, obj: anytype) !void {
         []StoreId => sendStoreIds(out, obj),
         StoreId => sendStoreId(out, obj),
         []Blob.Id => sendBlobIds(out, obj),
-        Blob.Id => sendArray(out, @as([]const u8, &obj)),
+        Blob.Id => sendArray(out, @as([]const u8, &obj.hash)),
         Blob => sendBlob(out, obj),
         GreetCode, CallTag, Status => sendEnum(out, obj),
         Response.SaveStatus => sendEnum(out, saveStatusToStatus(obj)),
@@ -314,9 +314,9 @@ fn recvBlobIds(in: *Reader, arena: Allocator) ![]Blob.Id {
 }
 
 fn recvBlobId(in: *Reader) !Blob.Id {
-    var blob_id: Blob.Id = undefined;
-    try recvArray(in, u8, &blob_id);
-    return blob_id;
+    var hash: @FieldType(Blob.Id, "hash") = undefined;
+    try recvArray(in, u8, &hash);
+    return .init(hash);
 }
 
 fn recvBlob(in: *Reader, arena: Allocator) !Blob {

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
+const json = std.json;
 const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
@@ -12,10 +13,6 @@ const Err = ty.Err;
 const fns = @import("functions.zig");
 const record = @import("record.zig");
 
-pub const Id = [32]u8;
-pub const IdStr = [64]u8;
-pub const Size = u64;
-
 const chunk_size: usize = 64 * 1024;
 
 const Self = @This();
@@ -27,6 +24,23 @@ const Core = union(enum) {
     file: File,
     memory: []const u8,
 };
+
+pub const Id = struct {
+    hash: [32]u8,
+
+    pub const init = record.init(Id);
+
+    pub fn jsonStringify(self: Id, stringify: *json.Stringify) !void {
+        return stringify.write(formatId(self));
+    }
+
+    pub fn format(self: Id, writer: *Writer) !void {
+        try writer.writeAll(&formatId(self));
+    }
+};
+
+pub const IdStr = [64]u8;
+pub const Size = u64;
 
 pub const Stream = struct {
     reader: *Reader,
@@ -108,7 +122,7 @@ pub fn hash(self: Self, arena: Allocator) !Id {
                 in.bytes_left -= slice.len;
                 hasher.update(slice);
             }
-            break :blob_id hasher.finalResult();
+            break :blob_id .init(hasher.finalResult());
         },
         .file => |file| blob_id: {
             const mmap_opts: std.Io.File.MemoryMap.CreateOptions = .{
@@ -138,7 +152,7 @@ pub fn hashCopy(self: Self, out: []u8) !Id {
                 in.bytes_left -= chunk.len;
                 hasher.update(chunk);
             }
-            break :blob_id hasher.finalResult();
+            break :blob_id .init(hasher.finalResult());
         },
         else => err: {
             const tag = activeTag(self.core);
@@ -150,13 +164,13 @@ pub fn hashCopy(self: Self, out: []u8) !Id {
 
 
 pub fn hashMemory(memory: []const u8) Id {
-    var id: Id = undefined;
+    var id: @FieldType(Id, "hash") = undefined;
     Hasher.hash(memory, &id, .{});
-    return id;
+    return .init(id);
 }
 
 pub fn formatId(id: Id) IdStr {
-    return std.mem.toBytes(fns.map(id, byteToHexPair));
+    return std.mem.toBytes(fns.map(id.hash, byteToHexPair));
 }
 
 fn byteToHexPair(byte: u8) [2]u8 {
@@ -176,8 +190,9 @@ pub fn parseId(id_str: []const u8) !Id {
         fns.println("Blob.parseId: invalid length id: \"{s}\"\n", .{id_str});
         return Err.Internal;
     }
-    const HexPairs = [@typeInfo(Id).array.len][2]u8;
-    return fns.map(std.mem.bytesToValue(HexPairs, id_str), hexPairToByte);
+    const HexPairs = [@typeInfo(@FieldType(Id, "hash")).array.len][2]u8;
+    const id = try fns.map(std.mem.bytesToValue(HexPairs, id_str), hexPairToByte);
+    return .init(id);
 }
 
 fn hexPairToByte(hex_pair: [2]u8) !u8 {

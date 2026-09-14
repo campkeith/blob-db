@@ -18,9 +18,9 @@ pub fn storeId(rng: Random, arena: Allocator,
 }
 
 pub fn blobId(rng: Random) RealBlob.Id {
-    var out: RealBlob.Id = undefined;
+    var out: @FieldType(RealBlob.Id, "hash") = undefined;
     rng.bytes(&out);
-    return out;
+    return .init(out);
 }
 
 pub fn blob(rng: Random, arena: Allocator,

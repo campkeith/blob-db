@@ -1,4 +1,5 @@
 const std = @import("std");
+const json = std.json;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
@@ -114,6 +115,10 @@ pub const StoreId = struct {
     pub fn create(arena: Allocator, id_in: []const u8) !StoreId {
         const id = try arena.dupe(u8, id_in);
         return .init(id);
+    }
+
+    pub fn jsonStringify(self: StoreId, stringify: *json.Stringify) !void {
+        return stringify.write(self.id);
     }
 
     pub fn format(self: StoreId, writer: *Writer) !void {

@@ -76,12 +76,12 @@ const TestRig = struct {
     const StoreIdHasher = HasherFromKeyFunc(StoreId, storeIdKey);
     const BlobIdHasher = HasherFromKeyFunc(Blob.Id, blobIdKey);
 
-    fn storeIdKey(storeId: *const StoreId) []const u8 {
-        return storeId.id;
+    fn storeIdKey(store_id: *const StoreId) []const u8 {
+        return store_id.id;
     }
 
-    fn blobIdKey(blobId: *const Blob.Id) []const u8 {
-        return blobId;
+    fn blobIdKey(blob_id: *const Blob.Id) []const u8 {
+        return &blob_id.hash;
     }
 };
 
@@ -321,7 +321,7 @@ fn storeIdLessThan(_: void, a: StoreId, b: StoreId) bool {
 }
 
 fn blobIdLessThan(_: void, a: Blob.Id, b: Blob.Id) bool {
-    return std.mem.lessThan(u8, &a, &b);
+    return std.mem.lessThan(u8, &a.hash, &b.hash);
 }
 
 fn mapChoose(rng: Random, Val: type, map: anytype) !Val {

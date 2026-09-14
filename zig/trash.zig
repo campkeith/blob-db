@@ -8,6 +8,7 @@ const Err = ty.Err;
 
 const fns = @import("functions.zig");
 
+// TODO: try a deinit function generator as a more explicit alternative
 pub fn recycle(obj: anytype, arena: Allocator) void {
     const Obj = @TypeOf(obj);
     @as(Err!void, switch (@typeInfo(Obj)) {
@@ -35,8 +36,7 @@ fn recycleStruct(struct_ptr: anytype, arena: Allocator) void {
     const Struct = @TypeOf(struct_ptr.*);
     if (isArrayList(Struct)) recycleArrayList(struct_ptr, arena)
     else if (isHashMap(Struct)) recycleHashMap(struct_ptr, arena)
-    else if (@hasDecl(Struct, "deinit"))
-        struct_ptr.deinit(arena)
+    else if (@hasDecl(Struct, "deinit")) struct_ptr.deinit(arena)
     else
         inline for (std.meta.fields(Struct)) |field| {
             const FieldType = @FieldType(Struct, field.name);
