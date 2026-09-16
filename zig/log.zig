@@ -39,7 +39,8 @@ pub fn call(Parent: type, comptime name: []const u8, comptime func: anytype)
                 return argsCallRet(func, .{a, b, c, d}, full_name);
             }
         }.inner,
-        else => unreachable,
+        else => @compileError(
+            std.fmt.comptimePrint("Unsupported arg count: {d}.", .{Args.len})),
     };
 }
 

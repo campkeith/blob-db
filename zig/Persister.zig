@@ -57,8 +57,8 @@ fn storeList_(self: *Self, arena: Allocator) ![]StoreId {
                           .{entry.kind, entry.name});
             continue;
         }
-        const store_id = try StoreId.create(arena, entry.name);
-        errdefer trash.recycle(store_id, arena);
+        var store_id = try StoreId.create(arena, entry.name);
+        errdefer trash.recycle(&store_id, arena);
         try list.append(arena, store_id);
     }
     return try list.toOwnedSlice(arena);

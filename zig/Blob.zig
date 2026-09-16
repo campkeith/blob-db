@@ -37,6 +37,10 @@ pub const Id = struct {
     pub fn format(self: Id, writer: *Writer) !void {
         try writer.writeAll(&formatId(self));
     }
+
+    pub fn lessThan(_: void, a: Id, b: Id) bool {
+        return std.mem.lessThan(u8, &a.hash, &b.hash);
+    }
 };
 
 pub const IdStr = [64]u8;
@@ -187,8 +191,8 @@ fn nibbleToHex(nibble: u4) u8 {
 
 pub fn parseId(id_str: []const u8) !Id {
     if (id_str.len != @typeInfo(IdStr).array.len) {
-        fns.println("Blob.parseId: invalid length id: \"{s}\"\n", .{id_str});
-        return Err.Internal;
+        fns.println("Blob.parseId: invalid length id: \"{s}\"", .{id_str});
+        return Err.BadArgument;
     }
     const HexPairs = [@typeInfo(@FieldType(Id, "hash")).array.len][2]u8;
     const id = try fns.map(std.mem.bytesToValue(HexPairs, id_str), hexPairToByte);
@@ -208,7 +212,7 @@ fn hexToNibble(digit: u8) !u4 {
         'a'...'f' => @intCast(digit - 'a' + 0xa),
         else => err: {
             fns.println("hexDigitToNibble: not a hex digit: '{c}'", .{digit});
-            break :err Err.Internal;
+            break :err Err.BadArgument;
         },
     };
 }

@@ -6,8 +6,8 @@ const IpAddress = std.Io.net.IpAddress;
 const ty = @import("types.zig");
 const Blob = @import("Blob.zig");
 
-pub fn Fmt(obj_in: anytype) Formatter(@TypeOf(obj_in)) {
-    return Formatter(@TypeOf(obj_in)){.obj = obj_in};
+pub fn Fmt(obj: anytype) Formatter(@TypeOf(obj)) {
+    return Formatter(@TypeOf(obj)){.obj = obj};
 }
 
 fn Formatter(Obj: type) type {
@@ -15,34 +15,34 @@ fn Formatter(Obj: type) type {
         obj: Obj,
 
         pub fn format(self: @This(), out: *Writer) !void {
-            return obj(self.obj, out);
+            return any(self.obj, out);
         }
     };
 }
 
-fn obj(obj_in: anytype, out: *Writer) !void {
-    const Obj = @TypeOf(obj_in);
+fn any(obj: anytype, out: *Writer) !void {
+    const Obj = @TypeOf(obj);
     if ((@typeInfo(Obj) == .@"struct" or @typeInfo(Obj) == .@"union")
             and @hasDecl(Obj, "format")) {
-        try obj_in.format(out);
+        try obj.format(out);
     } else try switch (Obj) {
-        []const u8 => out.print("\"{s}\"", .{obj_in}),
-        Blob.Id => out.print("{s}", .{Blob.formatId(obj_in)}),
-        ?IpAddress => ipAddress(obj_in, out),
-        std.mem.Allocator => struct_(obj_in, out),
+        []const u8 => out.print("\"{s}\"", .{obj}),
+        Blob.Id => out.print("{s}", .{Blob.formatId(obj)}),
+        ?IpAddress => ipAddress(obj, out),
+        std.mem.Allocator => struct_(obj, out),
         else => switch (@typeInfo(Obj)) {
             .error_union =>
-                if (obj_in) |not_err| obj(not_err, out)
+                if (obj) |not_err| any(not_err, out)
                     else |err| out.print("{t}", .{err}),
             .pointer => |pointer| switch (pointer.size) {
-                .slice => array(obj_in, out),
-                else => out.print("{*}", .{obj_in}),
+                .slice => array(obj, out),
+                else => out.print("{*}", .{obj}),
             },
             .@"struct" => |struct_in|
-                if (struct_in.is_tuple) tuple(obj_in, out)
+                if (struct_in.is_tuple) tuple(obj, out)
                 else structOpaque(obj, out),
             .void => out.writeAll("{}"),
-            else => out.print("{any}", .{obj_in}),
+            else => out.print("{any}", .{obj}),
         },
     };
 }
@@ -50,7 +50,7 @@ fn obj(obj_in: anytype, out: *Writer) !void {
 pub fn tuple(tuple_in: anytype, out: *Writer) !void {
     try out.writeAll("(");
     inline for (tuple_in, 0..) |item, index| {
-        try obj(item, out);
+        try any(item, out);
         if (index < tuple_in.len - 1) try out.writeAll(", ");
     }
     try out.writeAll(")");
@@ -59,7 +59,7 @@ pub fn tuple(tuple_in: anytype, out: *Writer) !void {
 pub fn array(array_in: anytype, out: *Writer) !void {
     try out.writeAll("[");
     for (array_in, 0..) |item, index| {
-        try obj(item, out);
+        try any(item, out);
         if (index < array_in.len - 1) try out.writeAll(", ");
     }
     try out.writeAll("]");

@@ -11,25 +11,26 @@ const fns = @import("functions.zig");
 // TODO: try a deinit function generator as a more explicit alternative
 pub fn recycle(obj: anytype, arena: Allocator) void {
     const Obj = @TypeOf(obj);
-    @as(Err!void, switch (@typeInfo(Obj)) {
+    switch (@typeInfo(Obj)) {
         .pointer => |Pointer| switch (Pointer.size) {
             .slice => recycleSlice(Pointer.child, obj, arena),
             .one => switch(@typeInfo(Pointer.child)) {
                 .pointer => |ChildPointer| switch (ChildPointer.size) {
                     .slice => recycleSlice(ChildPointer.child, obj.*, arena),
-                    else => Err.Internal,
+                    else => @compileError(@typeName(Obj)),
                 },
                 .@"struct" => recycleStruct(obj, arena),
                 .@"union" => recycleUnion(obj, arena),
+                .optional => if (obj) |*child_obj| recycle(child_obj),
                 .bool, .int, .float, .@"enum", .error_set, .void => {},
                 .array => |Array| if (!Pointer.is_const)
                     recycleArray(Array.child, Array.len, obj, arena),
-                else => Err.Internal,
+                else => @compileError(@typeName(Obj)),
             },
-            else => Err.Internal,
+            else => @compileError(@typeName(Obj)),
         },
-        else => Err.Internal,
-    }) catch fns.println("recycle: Ignoring unknown {any} object.", .{Obj});
+        else => @compileError(@typeName(Obj)),
+    }
 }
 
 fn recycleStruct(struct_ptr: anytype, arena: Allocator) void {

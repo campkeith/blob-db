@@ -309,19 +309,7 @@ fn sortedMapKeys(Key: type, map: anytype, arena: Allocator) ![]Key {
 }
 
 fn sortMatrix(Row: type, matrix: []Row) void {
-    switch (Row) {
-        StoreId => std.mem.sort(StoreId, matrix, {}, storeIdLessThan),
-        Blob.Id => std.mem.sort(Blob.Id, matrix, {}, blobIdLessThan),
-        else => unreachable,
-    }
-}
-
-fn storeIdLessThan(_: void, a: StoreId, b: StoreId) bool {
-    return std.mem.lessThan(u8, a.id, b.id);
-}
-
-fn blobIdLessThan(_: void, a: Blob.Id, b: Blob.Id) bool {
-    return std.mem.lessThan(u8, &a.hash, &b.hash);
+    std.mem.sort(Row, matrix, {}, Row.lessThan);
 }
 
 fn mapChoose(rng: Random, Val: type, map: anytype) !Val {

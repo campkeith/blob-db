@@ -10,7 +10,9 @@ pub fn init(Obj: type) Return: {
         1 => fn(types[0]) Obj,
         2 => fn(types[0], types[1]) Obj,
         3 => fn(types[0], types[1], types[2]) Obj,
-        else => unreachable,
+        4 => fn(types[0], types[1], types[2], types[3]) Obj,
+        else => @compileError(
+            std.fmt.comptimePrint("Unsupported field count: {d}", types.len)),
     };
 } {
     const types = fieldTypes(Obj);
@@ -35,7 +37,13 @@ pub fn init(Obj: type) Return: {
                 return makeStruct(Obj, .{a, b, c});
             }
         }.inner,
-        else => unreachable,
+        4 => struct {
+            fn inner(a: types[0], b: types[1], c: types[2], d: types[3]) Obj {
+                return makeStruct(Obj, .{a, b, c, d});
+            }
+        }.inner,
+        else => @compileError(
+            std.fmt.comptimePrint("Unsupported field count: {d}", types.len)),
     };
 }
 

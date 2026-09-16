@@ -184,10 +184,9 @@ fn processCallRequest(self: *Self, arena: Allocator, call: Request.Call)
 }
 
 fn handleError(err: anytype) Err {
-    return switch (err) {
-        Err.NotFound, Err.Exists, Err.BadArgument, Err.Internal =>
-            |err_| err_,
-        else => unexpected: {
+    return
+        if (fns.errorCast(Err, err)) |local_err| local_err
+        else unexpected: {
             fns.println("handleError: Unexpected internal error: {t}", .{err});
             if (@errorReturnTrace()) |trace| {
                 const size = @min(trace.index, trace.instruction_addresses.len);
@@ -197,6 +196,5 @@ fn handleError(err: anytype) Err {
                 });
             }
             break :unexpected Err.Internal;
-        }
-    };
+        };
 }

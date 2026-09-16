@@ -96,7 +96,8 @@ fn saveStatusToStatus(status: Response.SaveStatus) Status {
 }
 
 fn send(out: *Writer, obj: anytype) !void {
-    return switch (@TypeOf(obj)) {
+    const Obj = @TypeOf(obj);
+    return switch (Obj) {
         Request.StoreIdBlobId, Request.StoreIdBlob => sendStruct(out, obj),
         []StoreId => sendStoreIds(out, obj),
         StoreId => sendStoreId(out, obj),
@@ -107,10 +108,7 @@ fn send(out: *Writer, obj: anytype) !void {
         Response.SaveStatus => sendEnum(out, saveStatusToStatus(obj)),
         u16, u64 => sendInt(out, obj),
         void => {},
-        else => err: {
-            fns.println("send: {any} is not supported.", .{@TypeOf(obj)});
-            break :err Err.Internal;
-        },
+        else => @compileError("send: unhandled type: " ++ @typeName(Obj)),
     };
 }
 
@@ -219,25 +217,23 @@ pub fn recvRequest(in: *Reader, arena: Allocator) !Request {
 pub fn recvResponse(in: *Reader, opt_arena: ?Allocator, tag_in: CallTag) !Response {
     const arena = opt_arena orelse std.mem.Allocator.failing;
     const status = try recvEnum(in, Status);
-    return if (tag_in == .blob_save and (status == .okay or status == .exists))
-        .{.call = .{.blob_save =
-            .init(try statusToSaveStatus(status), try recvBlobId(in))}}
+    const opt_save_status = statusToSaveStatus(status);
+    return if (fns.andOpt(tag_in == .blob_save, opt_save_status)) |save_status|
+        .{.call = .{.blob_save = .init(save_status, try recvBlobId(in))}}
     else if (status == .okay) switch (tag_in) {
-        inline else => |tag|
-            .{.call = @unionInit(Response.Call, @tagName(tag),
-                try recv(in, arena, @FieldType(Response.Call, @tagName(tag))))},
+        inline else => |tag| out: {
+            if (tag == .blob_save) unreachable;
+            break :out .{.call = @unionInit(Response.Call, @tagName(tag),
+                try recv(in, arena, @FieldType(Response.Call, @tagName(tag))))};
+        },
     } else .{.err = statusToError(status)};
 }
 
-fn statusToSaveStatus(status: Status) !Response.SaveStatus {
+fn statusToSaveStatus(status: Status) ?Response.SaveStatus {
     return switch (status) {
         .okay => .created,
         .exists => .exists,
-        else => err: {
-            fns.println("statusToSaveStatus: unexpected status {t}",
-                          .{status});
-            break :err Err.Internal;
-        }
+        else => null,
     };
 }
 
@@ -255,22 +251,19 @@ fn statusToError(status: Status) Err {
     };
 }
 
-fn recv(in: *Reader, arena: Allocator, ObjType: type) !ObjType {
-    return switch (ObjType) {
-        Request.StoreIdBlobId, Request.StoreIdBlob,
-            Response.SaveStatusBlobId => try recvStruct(in, arena, ObjType),
+fn recv(in: *Reader, arena: Allocator, Obj: type) !Obj {
+    return switch (Obj) {
+        Request.StoreIdBlobId, Request.StoreIdBlob =>
+            try recvStruct(in, arena, Obj),
         []StoreId => try recvStoreIds(in, arena),
         StoreId => try recvStoreId(in, arena),
         []Blob.Id => try recvBlobIds(in, arena),
         Blob.Id => try recvBlobId(in),
         Blob => try recvBlob(in, arena),
-        GreetCode, CallTag, Status => try recvEnum(in, ObjType),
-        u16, u64 => try recvInt(in, ObjType),
+        GreetCode, CallTag, Status => try recvEnum(in, Obj),
+        u16, u64 => try recvInt(in, Obj),
         void => {},
-        else => err: {
-            fns.println("recv: {any} is not supported.", .{ObjType});
-            break :err Err.Internal;
-        },
+        else => @compileError("recv: unsupported type: " ++ @typeName(Obj)),
     };
 }
 

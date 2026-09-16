@@ -52,6 +52,15 @@ fn MapReturn(size: usize, FuncReturn: type) type {
     };
 }
 
+pub fn structCast(Out: type, in: anytype) Out {
+    const In = @TypeOf(in);
+    var out: Out = undefined;
+    inline for (std.meta.fields(Out), std.meta.fields(In)) |outfield, infield| {
+        @field(out, outfield.name) = @field(in, infield.name);
+    }
+    return out;
+}
+
 pub fn structField(Obj: type, comptime name: []const u8)
         fn(Obj) @FieldType(Obj, name) {
     return struct {
@@ -63,6 +72,31 @@ pub fn structField(Obj: type, comptime name: []const u8)
 
 pub fn argType(param: std.builtin.Type.Fn.Param) type {
     return param.type.?;
+}
+
+pub fn errorCast(ErrorSet: type, err: anyerror) ?ErrorSet {
+    inline for (@typeInfo(ErrorSet).error_set.?) |member_info| {
+        const member = @field(ErrorSet, member_info.name);
+        if (err == member) return member;
+    } else return null;
+}
+
+fn expectErrorSet(ErrorSet: type, result: anytype) !void {
+    if (result) |_| {
+        return error.NotAnError;
+    } else |err| {
+        if (@typeInfo(ErrorSet).error_set) |error_set| for (error_set) |err_info| {
+            if (std.mem.eql(u8, @errorName(err), err_info.name)) {
+                return;
+            }
+        };
+
+        return error.NotInErrorSet;
+    }
+}
+
+pub fn ErrUnionErrs(ErrorUnion: type) type {
+    return @typeInfo(ErrorUnion).error_union.error_set;
 }
 
 pub fn returnTypeSansErr(Func: type) type {
@@ -98,6 +132,10 @@ pub fn peerAddress(stream: *Io.net.Stream) !Io.net.IpAddress {
     const address: *posix.sockaddr = @ptrCast(&addr_buf);
     try std.posix.getpeername(stream.socket.handle, address, &size);
     return Io.Threaded.addressFromPosix(&.{.any = address.*});
+}
+
+pub fn andOpt(left: bool, right: anytype) @TypeOf(right) {
+    return if (left) right else null;
 }
 
 pub fn encode8(comptime bytes: *const[8]u8) u64 {

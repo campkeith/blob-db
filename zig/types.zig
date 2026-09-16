@@ -124,4 +124,8 @@ pub const StoreId = struct {
     pub fn format(self: StoreId, writer: *Writer) !void {
         try writer.print("\"{s}\"", .{self.id});
     }
+
+    pub fn lessThan(_: void, a: StoreId, b: StoreId) bool {
+        return std.mem.lessThan(u8, a.id, b.id);
+    }
 };
