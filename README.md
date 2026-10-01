@@ -60,6 +60,10 @@ upon failure of the main database operation.
 
 ## Interface
 
+Conceptually, the Blob Database provides the following set of Create, Read,
+Update, and Delete (CRUD) functions. See the following sections for HTTP and
+native protocol implementations of this interface.
+
 ### Database Functions
 
 These functions operate at the global database scope.
@@ -67,7 +71,7 @@ These functions operate at the global database scope.
 #### List Stores
 
 ```
-store_list() -> StoreName[]
+db_list() -> [StoreName, ...]
 ```
 Output the names of all stores in the database.
 
@@ -88,21 +92,24 @@ Destroy the store with the given name and all blobs within the given store.
 **Note**: As one would expect, this does not affect duplicates of any of said
 blobs in other stores.
 
-#### Hash Blob
-
-```
-blob_hash(Blob) -> Hash
-```
-Output the hash of the given blob. This function is included for the client's
-convenience.
-
-**Note**: This simply implements the
-[sha256](https://en.wikipedia.org/wiki/SHA-2) algorithm, which a client can
-almost certainly do faster itself.
-
 ### Store Functions
 
 These functions all operate on the blobs within the given store.
+
+#### List Blobs
+
+```
+store_list(StoreName) -> [Hash, ...] | Status
+```
+Output the hash of all blobs in the given store.
+
+#### Get Blob Info
+
+```
+blob_info(StoreName, Hash) -> Size | Status
+```
+Output the size of the blob with the given hash in the given store or
+'not-found' if it does not exist.
 
 #### Load Blob
 
@@ -125,27 +132,26 @@ computed and outputted for valid requests.
 (As a content-addressible store naturally performs de-duplication, a save of
 a duplicate blob is a no-op.)
 
-#### Get Blob Info
-
-```
-blob_info(StoreName, Hash) -> Size | Status
-```
-Output the size of the blob with the given hash in the given store or
-'not-found' if it does not exist.
-
-#### List Blobs
-
-```
-blob_list(StoreName) -> Hash[] | Status
-```
-Output the hash of all blobs in the given store.
-
 #### Delete Blob
 
 ```
 blob_delete(StoreName, Hash) -> Status
 ```
 Delete the blob with the given hash from the given store.
+
+### Convenience Functions
+
+#### Hash Blob
+
+```
+blob_hash(Blob) -> Hash
+```
+Output the hash of the given blob. This function is included for the client's
+convenience.
+
+**Note**: This simply implements the
+[sha256](https://en.wikipedia.org/wiki/SHA-2) algorithm, which a client can
+almost certainly do faster itself.
 
 ### Data Types
 
@@ -181,6 +187,79 @@ A status enumeration, which is one of:
     arguments violated static protocol constraints.
 * **internal-error**: The operation failed because of an internal failure in
     the server. (This shouldn't normally happen.)
+
+## HTTP Protocol
+
+For the client's convenience, the Blob Database provides a Representational
+State Transfer (ReST) oriented HTTP protocol with the following supported
+request lines:
+
+```
+| Function      | Request Line                    | Request Body | Response Body          |
+| ------------- | --------------------------------| ------------ | ---------------------- |
+| List Stores   | GET    /stores                  | -            | JSON: [StoreName, ...] |
+| Create Store  | PUT    /stores/:StoreName       | -            | -                      |
+| Destroy Store | DELETE /stores/:StoreName       | -            | -                      |
+| List Blobs    | GET    /stores/:StoreName       | -            | JSON: [Hash, ...]      |
+| Get Blob Info | HEAD   /stores/:StoreName/:Hash | -            | -                      |
+| Load Blob     | GET    /stores/:StoreName/:Hash | -            | Blob                   |
+| Save Blob     | POST   /stores/:StoreName       | Blob         | JSON: Hash             |
+| Delete Blob   | DELETE /stores/:StoreName/:Hash | -            | -                      |
+| Hash Blob     | POST   /hash                    | Blob         | JSON: Hash             |
+```
+
+The notation "-" means that the body of the request or response is empty.
+
+For the "Get Blob Info" function, the blob size is the value of the
+"Content-Length" response header.
+
+For the "Save Blob" function, if the blob already exists within the given store,
+the server will respond with a "409 Conflict" status, but still provide the
+hash of the given blob. (This save of a duplicate blob is a no-op in a
+de-duplicating content-addressible store.)
+
+### Data Type Formatting
+
+#### String Types
+
+The following conceptual types are represented as strings which can be
+inserted into their respective *:PlaceHolder* in the above request lines or
+encoded as JSON string values.
+
+```
+| Type      | Format                                                   |
+| --------- | -------------------------------------------------------- |
+| StoreName | The store name as a string                               |
+| Hash      | The 32-byte blob hash as a lowercase 64-hexadigit string |
+```
+
+#### HTTP Status Mapping
+
+The conceptual *Status* type is mapped to HTTP status codes as follows:
+
+```
+| Status         | HTTP Status               |
+| -------------- | ------------------------- |
+| okay           | 200 OK                    |
+| bad-argument   | 400 Bad Request           |
+| not-found      | 404 Not Found             |
+| already-exists | 409 Conflict              |
+| internal-error | 500 Internal Server Error |
+| no-space       | 507 Insufficient Storage  |
+```
+
+#### Blob
+
+The conceptual *Blob* is mapped to request and response bodies. The Blob bytes
+(contents) are transmitted directly through said bodies. The server ignores
+the "Content-Type" header sent by the client. For the convenience of the
+client (e.g. for browser display or download), the server will set
+"Content-Type" to "text/plain" if the first 256 bytes of the blob are non-null
+otherwise "application/octet-stream".
+
+The Blob Database stores blob contents, not metadata. The recommended usage
+of the Blob Database (see introduction above) is with a parent metadata
+database which is a good place to track content types.
 
 ## Native Protocol
 
